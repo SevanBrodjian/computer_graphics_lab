@@ -1,0 +1,11 @@
+tet2 tetrahedron2.obj
+
+tet2
+t -2 0 0
+r 1 0 0 .75
+s 0.5 0.5 0.5
+
+tet2
+t 2 0 0
+r 1 0 0 -.75
+s 1 1 1

@@ -1,0 +1,6 @@
+tet tetrahedron.obj
+
+tet
+t 0 0 0
+r 0 0 1 0
+s 1 1 1

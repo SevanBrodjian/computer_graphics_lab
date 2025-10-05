@@ -1,0 +1,16 @@
+tet1 tetrahedron.obj
+tet2 tetrahedron2.obj
+tet3 tetrahedron3.obj
+
+tet1
+t 0 0 0
+r 0 0 1 0
+s 1 1 1
+
+tet2
+t -2 0 0
+r 1 0 0 .75
+
+tet3
+t 2 0 0
+r 1 0 0 -.75
