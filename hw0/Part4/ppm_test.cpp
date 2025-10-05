@@ -4,6 +4,8 @@
 #include <stdexcept>
 #include <sstream>
 #include <cstdint>
+#include <algorithm>
+#include <limits>
 
 struct color {
     uint8_t r;
@@ -13,7 +15,7 @@ struct color {
     void print() {
         std::cout << static_cast<int>(r) << " "
                 << static_cast<int>(g) << " "
-                << static_cast<int>(b) << std::endl;
+                << static_cast<int>(b) << "\n";
     }
 };
 
@@ -57,8 +59,8 @@ int main(int argc, char* argv[]) {
     std::cout << xres << " " << yres << std::endl;
     std::cout << "255" << std::endl;
 
-    color background_col = color({150, 30, 30}); // Deep red
-    color circle_col = color({30, 150, 30}); // Deep green
+    color background_col{uint8_t(150), uint8_t(30),  uint8_t(30)}; // Deep red
+    color circle_col    {uint8_t(30),  uint8_t(150), uint8_t(30)}; // Deep green
     size_t radius = std::min(xres, yres) / 2 / 2;
     size_t r2 = radius * radius;
     int c_x = xres / 2; 
