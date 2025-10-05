@@ -2,7 +2,7 @@
 # CS/CNS 171 — HW0 Part 3
 ###############################################################################
 CXX       := g++
-CXXFLAGS  := -O2 -g -std=c++17 -Wall -Wextra -Wno-unused-parameter
+CXXFLAGS  := -O2 -g -std=c++14 -Wall -Wextra -Wno-unused-parameter
 
 EIGEN_DIR := ../
 CPPFLAGS  := -isystem $(EIGEN_DIR)

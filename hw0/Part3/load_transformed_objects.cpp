@@ -10,6 +10,7 @@
 #include <unordered_map>
 #include <optional>
 #include <stdexcept>
+#include <cctype>
 
 using Eigen::AngleAxisd;
 using Eigen::Matrix3d;
@@ -21,10 +22,11 @@ using Eigen::Vector3d;
 // # Part 1
 // #############################################
 
+// Change to doubles for Eigen compatibility
 struct vertex {
-    float x;
-    float y;
-    float z;
+    double x;
+    double y;
+    double z;
 };
 
 struct face {
@@ -56,7 +58,7 @@ std::vector<object> load_objects(const std::vector<std::string>& fpaths) {
             continue;
         }
 
-        std::vector<vertex> vertices{{0.0f, 0.0f, 0.0f}};
+        std::vector<vertex> vertices{{0.0, 0.0, 0.0}};
         std::vector<face> faces;
         std::string line;
 
@@ -71,7 +73,7 @@ std::vector<object> load_objects(const std::vector<std::string>& fpaths) {
             }
 
             if (type == 'v') {
-                float x, y, z;
+                double x, y, z;
                 if (!(iss >> x >> y >> z)) throw std::runtime_error("Invalid vertex format");
                 std::string leftover;
                 if (iss >> leftover) throw std::runtime_error("Extra data in vertex");
@@ -123,8 +125,11 @@ Matrix4d makeRotation(double rx, double ry, double rz, double angle) {
     return R;
 }
 
-// From Part 2
-Matrix4d makeInverseTransformFromLines(const std::vector<std::string>& lines) {
+// From Part 2, modified to take a vector of transform lines instead of files
+// Assumption: We want to left-multiply by M, not M inverse
+// This makes sense if we are interpreting the file as applying the transformations in order, directly to the vertices
+// However, the assignment isn't toally clear on this, why did we compute M inverse in part 2?
+Matrix4d makeTransformFromLines(const std::vector<std::string>& lines) {
     Matrix4d M = Matrix4d::Identity();
     size_t lineno = 0;
 
@@ -169,7 +174,7 @@ Matrix4d makeInverseTransformFromLines(const std::vector<std::string>& lines) {
         M = T * M;
     }
 
-    return M.inverse();
+    return M;
 };
 
 // #############################################
@@ -187,17 +192,18 @@ size_t find_string_idx(
     return it->second;
 }
 
-object applyTransformToObject(const object& src, const Matrix4d& Minv) {
-    object out = src; // copy
+object applyTransformToObject(const object& src, const Matrix4d& M) {
+    object out = src;
     for (size_t vi = 1; vi < out.vertices.size(); ++vi) {
-        Eigen::Vector4d p(out.vertices[vi].x, out.vertices[vi].y, out.vertices[vi].z, 1.0);
-        Eigen::Vector4d q = Minv * p;
-        out.vertices[vi].x = static_cast<float>(q[0]);
-        out.vertices[vi].y = static_cast<float>(q[1]);
-        out.vertices[vi].z = static_cast<float>(q[2]);
+        auto& v = out.vertices[vi];
+        Eigen::Vector4d p(v.x, v.y, v.z, 1.0);
+        Eigen::Vector4d q = M * p;
+        v.x = q[0];
+        v.y = q[1];
+        v.z = q[2];
     }
     return out;
-};
+}
 
 int main(int argc, char** argv) {
     if (argc != 2) {
@@ -235,7 +241,6 @@ int main(int argc, char** argv) {
         object_names.push_back(name);
         object_paths.push_back(path);
     }
-    fin.close();
 
     // Keep objects in the same order as object_names
     std::vector<object> objects = load_objects(object_paths);
@@ -247,121 +252,75 @@ int main(int argc, char** argv) {
         name_to_idx.emplace(object_names[i], i);
     }
 
-    // Quick check
-    // std::cout << "Parsed objects:\n";
-    // for (size_t i = 0; i < object_names.size(); ++i) {
-    //     std::cout << "  " << object_names[i] << " -> " << object_paths[i] << "\n";
-    //     objects[i].print();
-    // }
 
-    // // Example usage:
-    // try {
-    //     std::string obj_query = "tet2";
-    //     size_t idx = find_string_idx(obj_query, name_to_idx);
-    //     const object& obj = objects.at(idx);
-    //     std::cout << "Object " << obj_query << " at " << idx << std::endl;
-    // } catch (const std::out_of_range& e) {
-    //     std::cerr << e.what() << "\n";
-    // }
-
-    
     // STEP 2: Compute transformation matrices for each object listed (possible repeats)
 
     std::vector<object> transformed_objects;
     std::vector<std::string> transformed_object_names;
     std::unordered_map<std::string, size_t> copy_count;
 
-    std::ifstream fin2(argv[1]);
-
-    if (!fin2) {
-        std::cerr << "Error: could not re-open file for transforms: " << argv[1] << std::endl;
+    if (objects.size() != object_names.size()) {
+        std::cerr << "Error: Loaded different number of objects and names.\n";
         return 1;
     }
-    {
-        std::string l;
-        bool started_mapping2 = false;
-        while (std::getline(fin2, l)) {
-            auto first_non_ws = l.find_first_not_of(" \t\r\n");
-            if (first_non_ws == std::string::npos) {
-                if (started_mapping2) break;   // blank line ends mapping section
-                else continue;                 // skip leading blanks
-            }
-            if (l[first_non_ws] == '#') continue; // skip comments
-            started_mapping2 = true;              // reading mapping lines
-            // do nothing else; just advance until the first blank line after mapping
-        }
-    }
 
-    // Helpers local to STEP 2
+    std::string tline;
     std::string current_name;
     std::vector<std::string> current_transform_lines;
 
-    auto flush_block = [&]() {
-        if (current_name.empty() || current_transform_lines.empty()) {
-            current_transform_lines.clear();
-            return;
+    // Lambda to process blocks
+    auto flush_block = [&](){
+        if (current_name.empty() || current_transform_lines.empty()) { 
+            current_transform_lines.clear(); 
+            return; 
         }
-
         try {
-            // find base object index
             size_t base_idx = find_string_idx(current_name, name_to_idx);
-
-            // build inverse transform from the collected lines
-            Matrix4d Minv = makeInverseTransformFromLines(current_transform_lines);
-
-            // transform and store
-            object transformed = applyTransformToObject(objects.at(base_idx), Minv);
-
-            // name as _copyN (1-indexed per base name)
+            Matrix4d M = makeTransformFromLines(current_transform_lines);
+            object transformed = applyTransformToObject(objects.at(base_idx), M);
             size_t n = ++copy_count[current_name];
             transformed_object_names.push_back(current_name + "_copy" + std::to_string(n));
             transformed_objects.push_back(std::move(transformed));
         } catch (const std::exception& e) {
-            std::cerr << "Error processing block for '" << current_name << "': " << e.what() << "\n";
+            std::cerr << "Error processing block for '" << current_name << "': " << e.what() << std::endl;
         }
-
         current_transform_lines.clear();
         current_name.clear();
     };
 
-    // Read the transform section
-    std::string tline;
-    while (std::getline(fin2, tline)) {
+    // Continue from the current position in fin (after object declarations)
+    while (std::getline(fin, tline)) {
+        // Again, skip whitespace and comments to find the next block corresponding to an object and its transformations
         auto first_non_ws = tline.find_first_not_of(" \t\r\n");
-        if (first_non_ws == std::string::npos) {
-            // blank line ends current block
-            flush_block();
-            continue;
-        }
-        if (tline[first_non_ws] == '#') continue; // skip comments
+        if (first_non_ws == std::string::npos) { flush_block(); continue; }
+        if (tline[first_non_ws] == '#') continue;
 
-        char c = tline[first_non_ws];
-        if (c == 't' || c == 'r' || c == 's') {
+        std::istringstream iss(tline.substr(first_non_ws));
+        std::string tok;
+        iss >> tok; // Gets string up to next whitespace
+        if (!iss) continue;
+
+        if (tok == "t" || tok == "r" || tok == "s") {
             if (current_name.empty()) {
-                std::cerr << "Warning: transform before object name; skipping: " << tline << "\n";
+                std::cerr << "Warning: Transform before object name, skipping line " << tline << std::endl;
                 continue;
             }
             current_transform_lines.push_back(tline.substr(first_non_ws));
         } else {
-            // new object name line (first token is the name)
-            flush_block(); // finish previous block if any
-            std::istringstream iss(tline.substr(first_non_ws));
-            std::string name_token;
-            if (!(iss >> name_token)) {
-                std::cerr << "Warning: malformed object name line; skipping: " << tline << "\n";
-                continue;
-            }
-            current_name = name_token;
+            flush_block();              // finish previous block
+            current_name = tok;         // start a new one
         }
     }
-    // Flush last block at EOF
     flush_block();
+    fin.close();
 
-    fin2.close();
-
-    // (Optional) Print results
+    // Print results
     for (size_t i = 0; i < transformed_objects.size(); ++i) {
-        std::cout << "Transformed: " << transformed_object_names[i] << "\n";
-        transformed_objects[i].print();
+        std::cout << transformed_object_names[i] << std::endl;
+        const std::vector<vertex>& verts = transformed_objects[i].vertices;
+        for (std::size_t i = 1; i < verts.size(); ++i) {
+            std::cout << "v " << verts[i].x << " " << verts[i].y << " " << verts[i].z << std::endl;
+        }
+        if (i != transformed_objects.size() - 1) std::cout << std::endl;
     }
 }

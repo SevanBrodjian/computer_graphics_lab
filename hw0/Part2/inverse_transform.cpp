@@ -41,12 +41,12 @@ static Matrix4d makeRotation(double rx, double ry, double rz, double angle) {
 
 int main(int argc, char** argv) {
     if (argc != 2) {
-        std::cerr << "Usage: " << argv[0] << " transforms.txt\n";
+        std::cerr << "Usage: " << argv[0] << " transforms.txt" << std::endl;
         return 1;
     }
     std::ifstream fin(argv[1]);
     if (!fin) {
-        std::cerr << "Error: could not open file: " << argv[1] << "\n";
+        std::cerr << "Error: could not open file: " << argv[1] << std::endl;
         return 1;
     }
 
