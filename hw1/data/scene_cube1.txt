@@ -1,0 +1,17 @@
+camera:
+position 0 0 5
+orientation 0 1 0 0
+near 1
+far 10
+left -0.5
+right 0.5
+top 0.5
+bottom -0.5
+
+objects:
+cube cube.obj
+
+cube
+s 1 1 1
+r 0 0 1 0
+t 0 0 0
