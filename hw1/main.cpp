@@ -1,10 +1,13 @@
+#include "scene_types.h"
 #include "io_utils.h"
-
+#include "transform_utils.h"
 #include <iostream>
 #include <fstream>
 #include <sstream>
 #include <vector>
 #include <string>
+
+#include <cmath>
 
 
 std::string parse_parent_path(const std::string& path) {
@@ -32,7 +35,36 @@ int main(int argc, char* argv[]) {
         std::cerr << "Could not open file: " << argv[1] << "\n";
         return 1;
     }
+
+    // Returns camera parameters, and all objects *with transformations applied*
     ParseSceneFileResult scene = parseSceneFile(fin, parent_path);
 
     CameraTransforms cam_transforms = makeCameraMatrices(scene.camera_params);
+
+    std::vector<object> scene_objects_ndc = applyCameraTransformsToObjects(scene.scene_objects.transformed_objects, cam_transforms);
+
+    std::vector<vertex> scene_objects_vertices = convertCoordsToPixels(scene_objects_ndc, xres, yres);
+
+    std::cout << "P3" <<std::endl;
+    std::cout << xres << " " << yres << std::endl;
+    std::cout << "255" << std::endl;
+    color background_col{uint8_t(0), uint8_t(0),  uint8_t(0)};
+    color draw_col      {uint8_t(255),  uint8_t(255), uint8_t(255)};
+
+    for(size_t i = 0; i < xres; ++i){
+        for(size_t j = 0; j < yres; ++j){
+            bool anyVerts = false;
+            for (const auto& vert : scene_objects_vertices) {
+                size_t pixelX = static_cast<size_t>(std::round(vert.x));
+                size_t pixelY = static_cast<size_t>(std::round(vert.y));
+                if (pixelX == i && pixelY == j) {
+                    draw_col.print();
+                    anyVerts = true;
+                }
+                    
+            }
+            if (!anyVerts)
+                background_col.print();
+        }
+    }
 }

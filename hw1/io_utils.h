@@ -1,8 +1,7 @@
 #ifndef IO_UTILS_H
 #define IO_UTILS_H
 
-#include "transform_utils.h"
-
+#include "scene_types.h"
 #include <vector>
 #include <string>
 #include <unordered_map>
@@ -10,47 +9,35 @@
 #include <fstream>
 #include <Eigen/Dense>
 
-
 std::string join_path(const std::string& parent, const std::string& filename);
 
-std::vector<object> loadObjects(const std::vector<std::string>& fpaths, std::string parent_path);
+std::vector<object> loadObjects(const std::vector<std::string>& fpaths,
+                                std::string parent_path);
 
 Eigen::Matrix4d makeTransformFromLines(const std::vector<std::string>& lines);
 
-size_t find_string_idx(
-    const std::string& name, const std::unordered_map<std::string, 
-    size_t>& name_to_idx
-);
+size_t find_string_idx(const std::string& name,
+    const std::unordered_map<std::string, size_t>& name_to_idx);
 
-std::size_t parseObjectMappings(
-    const std::vector<std::string>& lines,
+std::size_t parseObjectMappings(const std::vector<std::string>& lines,
     std::vector<std::string>& object_names,
-    std::vector<std::string>& object_paths
-);
+    std::vector<std::string>& object_paths);
 
-void processTransformBlocks(
-    const std::vector<std::string>& lines,
+void processTransformBlocks(const std::vector<std::string>& lines,
     std::size_t start_idx,
     const std::vector<object>& objects,
     const std::vector<std::string>& object_names,
     const std::unordered_map<std::string, std::size_t>& name_to_idx,
     std::vector<object>& out_transformed,
-    std::vector<std::string>& out_names
-);
+    std::vector<std::string>& out_names);
 
 struct TransformRunResult {
     std::vector<object> transformed_objects;
     std::vector<std::string> transformed_object_names;
 };
 
-TransformRunResult makeTransformedObjectsFromLines(const std::vector<std::string>& lines, std::string parent_path);
-
-struct CameraParams {
-    double px = 0, py = 0, pz = 0; // position
-    double ox = 0, oy = 1, oz = 0, oang = 0; // orientation (axis x,y,z, angle)
-    double znear = 0, zfar = 0;
-    double left = 0, right = 0, top = 0, bottom = 0;
-};
+TransformRunResult makeTransformedObjectsFromLines(const std::vector<std::string>& lines,
+                                                   std::string parent_path);
 
 struct ParseSceneFileResult {
     CameraParams camera_params;

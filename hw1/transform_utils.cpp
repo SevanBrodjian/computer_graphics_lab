@@ -52,7 +52,7 @@ object applyTransformToObject(const object& src, const Matrix4d& M) {
     for (size_t vi = 1; vi < out.vertices.size(); ++vi) {
         auto& v = out.vertices[vi];
         Eigen::Vector4d p(v.x, v.y, v.z, 1.0);
-        Eigen::Vector4d q = M * p;
+        Eigen::Vector3d q = (M * p).hnormalized();
         v.x = q[0];
         v.y = q[1];
         v.z = q[2];
@@ -60,7 +60,7 @@ object applyTransformToObject(const object& src, const Matrix4d& M) {
     return out;
 }
 
-CameraTransforms makeCameraMatrices(CameraParams cam){
+CameraTransforms makeCameraMatrices(const CameraParams& cam){
     // Make transformation matrix
     Matrix4d T_C = makeTranslation(cam.px, cam.py, cam.pz);
     Matrix4d R_C = makeRotation(cam.ox, cam.oy, cam.oz, cam.oang);
@@ -82,4 +82,27 @@ CameraTransforms makeCameraMatrices(CameraParams cam){
         0,                  0,                  -1,                  0;
 
     return CameraTransforms({C_inv, P});
+}
+
+std::vector<object> applyCameraTransformsToObjects(const std::vector<object>& objects, CameraTransforms cam_transforms){
+    std::vector<object> ndc_objects;
+    Matrix4d cameraTransformMatrix = cam_transforms.P * cam_transforms.Cinv;
+    for (const auto& obj : objects) {
+        ndc_objects.push_back(applyTransformToObject(obj, cameraTransformMatrix));
+    }
+    return ndc_objects;
+}
+
+std::vector<vertex> convertCoordsToPixels(std::vector<object> objects, size_t xres, size_t yres){
+    std::vector<vertex> pixelCoords;
+    for (const auto& obj : objects) {
+        for (const auto& vert : obj.vertices) {
+            if (vert.x < -1 || vert.x > 1 || vert.y < -1 || vert.y > 1 || vert.z < -1 || vert.z > 1) continue;
+
+            double pixelX = (vert.x + 1) / 2 * xres;
+            double pixelY = (vert.y + 1) / 2 * yres;
+            pixelCoords.push_back(vertex({pixelX, pixelY, vert.z}));
+        }
+    }
+    return pixelCoords;
 }
