@@ -95,12 +95,18 @@ std::vector<object> applyCameraTransformsToObjects(const std::vector<object>& ob
 
 std::vector<vertex> convertCoordsToPixels(std::vector<object> objects, size_t xres, size_t yres){
     std::vector<vertex> pixelCoords;
+    if (xres == 0 || yres == 0) return pixelCoords;
+
+    const double max_x = static_cast<double>(xres - 1);
+    const double max_y = static_cast<double>(yres - 1);
+
     for (const auto& obj : objects) {
-        for (const auto& vert : obj.vertices) {
+        for (std::size_t vi = 1; vi < obj.vertices.size(); ++vi) {
+            const auto& vert = obj.vertices[vi];
             if (vert.x < -1 || vert.x > 1 || vert.y < -1 || vert.y > 1 || vert.z < -1 || vert.z > 1) continue;
 
-            double pixelX = (vert.x + 1) / 2 * xres;
-            double pixelY = (vert.y + 1) / 2 * yres;
+            double pixelX = (vert.x + 1.0) * 0.5 * max_x;
+            double pixelY = (vert.y + 1.0) * 0.5 * max_y;
             pixelCoords.push_back(vertex({pixelX, pixelY, vert.z}));
         }
     }
