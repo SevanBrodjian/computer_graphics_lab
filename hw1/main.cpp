@@ -51,8 +51,8 @@ int main(int argc, char* argv[]) {
     color background_col{uint8_t(0), uint8_t(0),  uint8_t(0)};
     color draw_col      {uint8_t(255),  uint8_t(255), uint8_t(255)};
 
-    for(size_t i = 0; i < xres; ++i){
-        for(size_t j = 0; j < yres; ++j){
+    for(size_t j = 0; j < yres; ++j){
+        for(size_t i = 0; i < xres; ++i){
             bool anyVerts = false;
             for (const auto& vert : scene_objects_vertices) {
                 size_t pixelX = static_cast<size_t>(std::round(vert.x));

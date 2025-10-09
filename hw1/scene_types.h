@@ -5,6 +5,7 @@
 #include <vector>
 #include <iostream>
 #include <Eigen/Dense>
+#include <cstdint>
 
 struct vertex {
     double x, y, z;
