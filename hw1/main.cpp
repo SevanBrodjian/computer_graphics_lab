@@ -35,18 +35,30 @@ void draw_line(int x0,int y0,int x1,int y1,
                uint8_t r,uint8_t g,uint8_t b,
                int W,int H, std::vector<uint8_t>& img)
 {
-    if ((unsigned)x0 > (unsigned)W || (unsigned)y0 > (unsigned)H ||
-            (unsigned)x1 > (unsigned)W || (unsigned)y1 > (unsigned)H) return;
+    // NOTE: Uncomment to avoid drawing lines to points that are offscreen
+    // if ((unsigned)x0 > (unsigned)W || (unsigned)y0 > (unsigned)H ||
+    //         (unsigned)x1 > (unsigned)W || (unsigned)y1 > (unsigned)H) return;
+        
+    bool steep = std::abs(y1 - y0) > std::abs(x1 - x0);
+    if (steep) { std::swap(x0, y0); std::swap(x1, y1); }
 
-    int dx = std::abs(x1-x0), sx = x0<x1 ? 1:-1;
-    int dy =-std::abs(y1-y0), sy = y0<y1 ? 1:-1;
-    int err = dx + dy; // note dy is negative
-    while(true){
-        put_pixel(x0,y0,r,g,b,W,H,img);
-        if (x0==x1 && y0==y1) break;
-        int e2 = err<<1;
-        if (e2 >= dy){ err += dy; x0 += sx; }
-        if (e2 <= dx){ err += dx; y0 += sy; }
+    if (x0 > x1) { std::swap(x0, x1); std::swap(y0, y1); }
+
+    int dx = x1 - x0;
+    int dy = std::abs(y1 - y0);
+    int err = 0;
+    int ystep = (y0 < y1) ? 1 : -1;
+    int y = y0;
+
+    for (int x = x0; x <= x1; ++x) {
+        if (steep) put_pixel(y, x, r, g, b, W, H, img);
+        else       put_pixel(x, y, r, g, b, W, H, img);
+
+        err += dy;
+        if ((err << 1) >= dx) {   // i.e., 2*err >= dx
+            y += ystep;
+            err -= dx;
+        }
     }
 }
 
