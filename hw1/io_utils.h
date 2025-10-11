@@ -46,4 +46,6 @@ struct ParseSceneFileResult {
 
 ParseSceneFileResult parseSceneFile(std::ifstream& fin, std::string parent_path);
 
+void writePPM(const std::vector<uint8_t>& img, size_t xres, size_t yres);
+
 #endif

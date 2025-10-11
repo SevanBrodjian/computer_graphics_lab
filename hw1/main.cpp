@@ -20,6 +20,55 @@ size_t parse_size_t(const char* str) {
     return static_cast<size_t>(std::stoul(str));
 }
 
+inline void put_pixel(int x,int y,
+                      uint8_t r,uint8_t g,uint8_t b,
+                      int W,int H, std::vector<uint8_t>& img)
+{
+    if ((unsigned)x < (unsigned)W && (unsigned)y < (unsigned)H) {
+        size_t py = (size_t)H - 1 - size_t(y);
+        size_t i = 3ull*(py*W + x);
+        img[i]=r; img[i+1]=g; img[i+2]=b;
+    }
+}
+
+void draw_line(int x0,int y0,int x1,int y1,
+               uint8_t r,uint8_t g,uint8_t b,
+               int W,int H, std::vector<uint8_t>& img)
+{
+    if ((unsigned)x0 > (unsigned)W || (unsigned)y0 > (unsigned)H ||
+            (unsigned)x1 > (unsigned)W || (unsigned)y1 > (unsigned)H) return;
+
+    int dx = std::abs(x1-x0), sx = x0<x1 ? 1:-1;
+    int dy =-std::abs(y1-y0), sy = y0<y1 ? 1:-1;
+    int err = dx + dy; // note dy is negative
+    while(true){
+        put_pixel(x0,y0,r,g,b,W,H,img);
+        if (x0==x1 && y0==y1) break;
+        int e2 = err<<1;
+        if (e2 >= dy){ err += dy; x0 += sx; }
+        if (e2 <= dx){ err += dx; y0 += sy; }
+    }
+}
+
+std::vector<uint8_t> drawWireframe(std::vector<object> scene_objects, size_t xres, size_t yres){
+    std::vector<uint8_t> img(xres*yres*3, 0); // background (black)
+    for (const auto& obj: scene_objects){
+        for (const auto& face: obj.faces){
+            int x1 = static_cast<int>(std::lround(obj.vertices[face.v1].x));
+            int y1 = static_cast<int>(std::lround(obj.vertices[face.v1].y));
+            int x2 = static_cast<int>(std::lround(obj.vertices[face.v2].x));
+            int y2 = static_cast<int>(std::lround(obj.vertices[face.v2].y));
+            int x3 = static_cast<int>(std::lround(obj.vertices[face.v3].x));
+            int y3 = static_cast<int>(std::lround(obj.vertices[face.v3].y));
+
+            draw_line(x1, y1, x2, y2, 255, 255, 255, xres, yres, img);
+            draw_line(x2, y2, x3, y3, 255, 255, 255, xres, yres, img);
+            draw_line(x3, y3, x1, y1, 255, 255, 255, xres, yres, img);
+        }
+    }
+    return img;
+}
+
 int main(int argc, char* argv[]) {
     if (argc != 4) {
         std::cerr << "Usage: " << argv[0] << " [scene_description_file.txt] [xres] [yres]\n";
@@ -43,28 +92,9 @@ int main(int argc, char* argv[]) {
 
     std::vector<object> scene_objects_ndc = applyCameraTransformsToObjects(scene.scene_objects.transformed_objects, cam_transforms);
 
-    std::vector<vertex> scene_objects_vertices = convertCoordsToPixels(scene_objects_ndc, xres, yres);
+    convertCoordsToPixels(scene_objects_ndc, xres, yres);
 
-    std::cout << "P3" <<std::endl;
-    std::cout << xres << " " << yres << std::endl;
-    std::cout << "255" << std::endl;
-    color background_col{uint8_t(0), uint8_t(0),  uint8_t(0)};
-    color draw_col      {uint8_t(255),  uint8_t(255), uint8_t(255)};
+    std::vector<uint8_t> img = drawWireframe(scene_objects_ndc, xres, yres);
 
-    for(size_t j = 0; j < yres; ++j){
-        for(size_t i = 0; i < xres; ++i){
-            bool anyVerts = false;
-            for (const auto& vert : scene_objects_vertices) {
-                size_t pixelX = static_cast<size_t>(std::round(vert.x));
-                size_t pixelY = static_cast<size_t>(std::round(vert.y));
-                if (pixelX == i && pixelY == j) {
-                    draw_col.print();
-                    anyVerts = true;
-                }
-                    
-            }
-            if (!anyVerts)
-                background_col.print();
-        }
-    }
+    writePPM(img, xres, yres);
 }

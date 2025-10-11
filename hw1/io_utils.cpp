@@ -42,10 +42,13 @@ std::vector<object> loadObjects(const std::vector<std::string>& fpaths, std::str
         std::string line;
 
         while (std::getline(file, line)) {
-            if (line.empty() || line[0] == '#' || std::isspace(line[0])) continue;
+            std::string s = line;
+            auto p = s.find_first_not_of(" \t\r\n");
+            if (p == std::string::npos) continue;
+            if (s[p] == '#') continue;
 
-            char type = line[0];
-            std::istringstream iss(line.substr(1));
+            char type = s[p];
+            std::istringstream iss(s.substr(p + 1));
 
             if (type != 'v' && type != 'f') {
                 throw std::runtime_error("Invalid format: must start with 'v' or 'f'");
@@ -62,6 +65,9 @@ std::vector<object> loadObjects(const std::vector<std::string>& fpaths, std::str
                 if (!(iss >> a >> b >> c)) throw std::runtime_error("Invalid face format");
                 std::string leftover;
                 if (iss >> leftover) throw std::runtime_error("Extra data in face");
+                if (a >= vertices.size() || b >= vertices.size() || c >= vertices.size()) {
+                    throw std::runtime_error("Face index out of range");
+                }
                 faces.push_back({a, b, c});
             }
         }
@@ -297,6 +303,11 @@ void readCameraParams(CameraParams& cam, std::ifstream& fin){
         }
     }
 
+    if (cam.znear==0 || cam.zfar==cam.znear ||
+        cam.right==cam.left || cam.top==cam.bottom) {
+        throw std::runtime_error("Invalid frustum parameters");
+    }
+
     if (!in_objects) {
         std::cerr << "Missing 'objects:' after camera section.\n";
     }
@@ -332,4 +343,13 @@ ParseSceneFileResult parseSceneFile(std::ifstream& fin, std::string parent_path)
     TransformRunResult scene_objects = makeTransformedObjectsFromLines(object_section_lines, parent_path);
 
     return ParseSceneFileResult({cam, scene_objects});
+}
+
+void writePPM(const std::vector<uint8_t>& img, size_t xres, size_t yres){
+    std::cout << "P3\n" << xres << " " << yres << "\n255\n";
+    for (size_t i = 0; i < xres * yres * 3; i += 3) {
+        std::cout << static_cast<int>(img[i]) << " "
+                << static_cast<int>(img[i+1]) << " "
+                << static_cast<int>(img[i+2]) << "\n";
+    }
 }

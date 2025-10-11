@@ -14,6 +14,6 @@ CameraTransforms makeCameraMatrices(const CameraParams& cam);
 
 std::vector<object> applyCameraTransformsToObjects(const std::vector<object>& objects, CameraTransforms cam_transforms);
 
-std::vector<vertex> convertCoordsToPixels(std::vector<object> objects, size_t xres, size_t yres);
+void convertCoordsToPixels(std::vector<object>& objects, size_t xres, size_t yres);
 
 #endif
