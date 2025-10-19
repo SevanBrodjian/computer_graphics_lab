@@ -20,15 +20,14 @@ size_t parse_size_t(const char* str) {
     return static_cast<size_t>(std::stoul(str));
 }
 
-inline void put_pixel(int x,int y,
-                      uint8_t r,uint8_t g,uint8_t b,
-                      int W,int H, std::vector<uint8_t>& img)
-{
-    if ((unsigned)x < (unsigned)W && (unsigned)y < (unsigned)H) {
-        size_t py = (size_t)H - 1 - size_t(y);
-        size_t i = 3ull*(py*W + x);
-        img[i]=r; img[i+1]=g; img[i+2]=b;
-    }
+inline void put_pixel(int x,int y, uint8_t r,uint8_t g,uint8_t b,
+                         int W,int H, std::vector<uint8_t>& img, float a=1.0) {
+    if ((unsigned)x >= (unsigned)W || (unsigned)y >= (unsigned)H) return;
+    size_t py = (size_t)H - 1 - size_t(y);
+    size_t idx = 3ull*(py*W + x);
+    img[idx+0] = uint8_t((1.f - a)*img[idx+0] + a*r);
+    img[idx+1] = uint8_t((1.f - a)*img[idx+1] + a*g);
+    img[idx+2] = uint8_t((1.f - a)*img[idx+2] + a*b);
 }
 
 void draw_line(int x0,int y0,int x1,int y1,
@@ -38,26 +37,37 @@ void draw_line(int x0,int y0,int x1,int y1,
     // NOTE: Uncomment to avoid drawing lines to points that are offscreen
     // if ((unsigned)x0 > (unsigned)W || (unsigned)y0 > (unsigned)H ||
     //         (unsigned)x1 > (unsigned)W || (unsigned)y1 > (unsigned)H) return;
-        
+    
     bool steep = std::abs(y1 - y0) > std::abs(x1 - x0);
     if (steep) { std::swap(x0, y0); std::swap(x1, y1); }
-
     if (x0 > x1) { std::swap(x0, x1); std::swap(y0, y1); }
 
     int dx = x1 - x0;
-    int dy = std::abs(y1 - y0);
-    int err = 0;
+    int dy_abs = std::abs(y1 - y0);
     int ystep = (y0 < y1) ? 1 : -1;
+
+    // fractional error in [0,1), how far the true line is toward the next y
+    float errf = 0.0f;
+    float slope = dx ? (float)dy_abs / (float)dx : 0.0f;
+
     int y = y0;
-
     for (int x = x0; x <= x1; ++x) {
-        if (steep) put_pixel(y, x, r, g, b, W, H, img);
-        else       put_pixel(x, y, r, g, b, W, H, img);
+        // Nearer pixel gets weight 1-errf, the other gets errf
+        float w0 = 1.0f - errf; // current y
+        float w1 = errf; // neighbor at y + ystep
 
-        err += dy;
-        if ((err << 1) >= dx) {   // i.e., 2*err >= dx
+        if (steep) {
+            put_pixel(y,x, r,g,b, W,H, img, w0);
+            put_pixel(y+ystep,x, r,g,b, W,H, img, w1);
+        } else {
+            put_pixel(x,y, r,g,b, W,H, img, w0);
+            put_pixel(x,y+ystep, r,g,b, W,H, img, w1);
+        }
+
+        errf += slope;
+        while (errf >= 1.0f) {
             y += ystep;
-            err -= dx;
+            errf -= 1.0f;
         }
     }
 }
