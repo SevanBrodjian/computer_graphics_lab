@@ -1638,6 +1638,8 @@ int main(int argc, char* argv[])
     /* The following line tells OpenGL to name the program window "Test".
      */
     glutCreateWindow("Test");
+
+    glewInit();
     
     /* Call our 'init' function...
      */

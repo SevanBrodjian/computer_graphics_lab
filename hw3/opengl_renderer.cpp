@@ -55,7 +55,7 @@ void build_drawables() {
         fill_material(inst.ambient, drawable.ambient);
         fill_material(inst.diffuse, drawable.diffuse);
         fill_material(inst.specular, drawable.specular);
-        double shininess = std::clamp(inst.shininess * 128.0, 0.0, 128.0);
+        double shininess = std::max(0.0, std::min(inst.shininess * 128.0, 128.0));
         drawable.shininess = static_cast<GLfloat>(shininess);
 
         for (const auto& face : inst.obj.faces) {

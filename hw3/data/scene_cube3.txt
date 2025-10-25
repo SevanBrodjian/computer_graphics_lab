@@ -1,0 +1,26 @@
+camera:
+position -2 0 5
+orientation 0 1 0 0
+near 1
+far 10
+left -0.5
+right 0.5
+top 0.5
+bottom -0.5
+
+light 0 0 4.5 , 1 1 1 , 0
+
+objects:
+cube cube.obj
+
+cube
+ambient 0.2 0 0
+diffuse 0.8 0 0
+specular 0 0 0
+shininess 0.2
+s 1 1 1
+r 0 1 0 0.6
+t 0 0 0
+s 1 1 1
+r 1 0 0 0.75
+t -2 0 2.5
