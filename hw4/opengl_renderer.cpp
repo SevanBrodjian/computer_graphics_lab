@@ -3,7 +3,7 @@
 #include "texture_loader.h"
 
 #ifdef __APPLE__
-#define GL_SILENCE_DEPRECATION
+// #define GL_SILENCE_DEPRECATION
 #endif
 #include <GL/glew.h>
 #ifdef __APPLE__
@@ -570,8 +570,6 @@ std::size_t parse_size(const char* text) {
     }
     return static_cast<std::size_t>(value);
 }
-
-} // namespace
 
 int main(int argc, char** argv) {
     try {
