@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.24)
 project(hw3 LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 14) # C++ 14 for Eigen compatibility, required
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(OpenGL REQUIRED)

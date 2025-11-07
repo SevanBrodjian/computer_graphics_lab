@@ -6,6 +6,8 @@
 #include <cstdint>
 #include <Eigen/Dense>
 
+// Reused from hw2
+
 struct Vertex {
     double x, y, z;
 };

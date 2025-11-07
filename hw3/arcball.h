@@ -37,17 +37,18 @@ private:
         if (window_width_ == 0 || window_height_ == 0) {
             return {0.0, 0.0, 1.0};
         }
+        // Get x and y deviations from center, normalized to be in [-1, 1] (NDC)
         double nx = (2.0 * x - window_width_) / window_width_;
-        double ny = (window_height_ - 2.0 * y) / window_height_;
+        double ny = (window_height_ - 2.0 * y) / window_height_; // Flip y since mouseY = 0 is top
         double length = nx*nx + ny*ny;
         double nz;
         if (length > 1.0) {
             double norm = std::sqrt(length);
             nx /= norm;
             ny /= norm;
-            nz = 0.0;
+            nz = 0.0; // Rotate across z axis when out of bounds
         } else {
-            nz = std::sqrt(1.0 - length);
+            nz = std::sqrt(1.0 - length); // Since xx+yy+zz=1 is on the unit sphere
         }
         return {nx, ny, nz};
     }

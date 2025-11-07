@@ -19,6 +19,7 @@
 #include <stdexcept>
 #include <vector>
 
+// Variant of our object class compatible with OpenGL (all vertices laid out, including repeats)s
 struct DrawableObject {
     std::vector<GLfloat> vertices;
     std::vector<GLfloat> normals;
@@ -32,30 +33,33 @@ namespace {
 Scene g_scene;
 std::vector<DrawableObject> g_drawables;
 Arcball g_arcball;
-int g_window_width = 640;
-int g_window_height = 480;
+int g_window_width = 800;
+int g_window_height = 800;
 }
 
 void build_drawables() {
+    // Created OpenGL compatible structs from our parsed objects
+
     g_drawables.clear();
     g_drawables.reserve(g_scene.scene_objects.size());
 
     for (const auto& inst : g_scene.scene_objects) {
         DrawableObject drawable;
-        drawable.vertices.reserve(inst.obj.faces.size() * 9);
-        drawable.normals.reserve(inst.obj.faces.size() * 9);
+        // 3 verts and normals per face, each made of 3 floats
+        drawable.vertices.reserve(inst.obj.faces.size() * 3 * 3);
+        drawable.normals.reserve(inst.obj.faces.size() * 3 * 3);
 
         auto fill_material = [&](const Eigen::Vector3d& src, GLfloat out[4]) {
+            // Simple helper to copy over data into new structs
             out[0] = static_cast<GLfloat>(src[0]);
             out[1] = static_cast<GLfloat>(src[1]);
             out[2] = static_cast<GLfloat>(src[2]);
             out[3] = 1.0f;
         };
-
         fill_material(inst.ambient, drawable.ambient);
         fill_material(inst.diffuse, drawable.diffuse);
         fill_material(inst.specular, drawable.specular);
-        double shininess = std::max(0.0, std::min(inst.shininess * 128.0, 128.0));
+        double shininess = std::max(0.0, std::min(inst.shininess, 128.0));
         drawable.shininess = static_cast<GLfloat>(shininess);
 
         for (const auto& face : inst.obj.faces) {
@@ -84,73 +88,100 @@ void build_drawables() {
     }
 }
 
-void init_gl() {
-    glEnable(GL_DEPTH_TEST);
+void init_lights() {
     glEnable(GL_LIGHTING);
-    glEnable(GL_NORMALIZE);
-    glShadeModel(GL_SMOOTH);
-    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-}
+    // More realistic lighting -- the viewer isn't infinitely far away
+    glLightModeli(GL_LIGHT_MODEL_LOCAL_VIEWER, GL_TRUE);
 
-void set_lights() {
     const auto& lights = g_scene.lights;
     GLint max_lights = 0;
     glGetIntegerv(GL_MAX_LIGHTS, &max_lights);
+    GLfloat zero4[4]  = { 0.f, 0.f, 0.f, 1.f };
 
     for (GLint i = 0; i < max_lights; ++i) {
         GLenum light_id = static_cast<GLenum>(GL_LIGHT0 + i);
         if (i < static_cast<GLint>(lights.size())) {
             const auto& light = lights[i];
             glEnable(light_id);
-            GLfloat position[4] = {
-                static_cast<GLfloat>(light.x),
-                static_cast<GLfloat>(light.y),
-                static_cast<GLfloat>(light.z),
-                1.0f
-            };
             GLfloat color[4] = {
                 static_cast<GLfloat>(light.r),
                 static_cast<GLfloat>(light.g),
                 static_cast<GLfloat>(light.b),
                 1.0f
             };
-            glLightfv(light_id, GL_POSITION, position);
             glLightfv(light_id, GL_DIFFUSE, color);
             glLightfv(light_id, GL_SPECULAR, color);
-            glLightf(light_id, GL_CONSTANT_ATTENUATION, 1.0f);
-            glLightf(light_id, GL_LINEAR_ATTENUATION, 0.0f);
+            glLightfv(light_id, GL_AMBIENT, zero4);
             glLightf(light_id, GL_QUADRATIC_ATTENUATION, static_cast<GLfloat>(light.atten));
         } else {
             glDisable(light_id);
         }
     }
+
+    // Activate global ambient lighting for all objects
+    GLfloat color[4] = {1.f, 1.f, 1.f, 1.f};
+    glLightModelfv(GL_LIGHT_MODEL_AMBIENT, color);
+}
+
+void init_gl() {
+    glShadeModel(GL_SMOOTH);
+    glEnable(GL_CULL_FACE);
+    glCullFace(GL_BACK);
+    glEnable(GL_DEPTH_TEST);
+    glEnable(GL_NORMALIZE);
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f); // Default bground is black
+
+    glEnableClientState(GL_VERTEX_ARRAY);
+    glEnableClientState(GL_NORMAL_ARRAY);
+    
+    glMatrixMode(GL_PROJECTION);
+    glLoadMatrixd(g_scene.cam_transforms.P.data());
+
+    glMatrixMode(GL_MODELVIEW);
+    init_lights();
+}
+
+void set_lights() {
+    // Call every draw loop, sets the light positions after updating GL_MODELVIEW
+    // That way the lights are rotated by the arcball
+    const auto& lights = g_scene.lights;
+    int num_lights = lights.size();
+    
+    for(int i = 0; i < num_lights; ++i)
+    {
+        const auto& light = lights[i];
+        GLfloat position[4] = {
+            static_cast<GLfloat>(light.x),
+            static_cast<GLfloat>(light.y),
+            static_cast<GLfloat>(light.z),
+            1.0f
+        };
+        int light_id = GL_LIGHT0 + i;
+        glLightfv(light_id, GL_POSITION, position);
+    }
 }
 
 void draw_scene() {
     for (const auto& drawable : g_drawables) {
-        glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT, drawable.ambient);
-        glMaterialfv(GL_FRONT_AND_BACK, GL_DIFFUSE, drawable.diffuse);
-        glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR, drawable.specular);
-        glMaterialf(GL_FRONT_AND_BACK, GL_SHININESS, drawable.shininess);
+        // No transforms to apply -- our objects are already transformed during parsing
+        glMaterialfv(GL_FRONT, GL_AMBIENT, drawable.ambient);
+        glMaterialfv(GL_FRONT, GL_DIFFUSE, drawable.diffuse);
+        glMaterialfv(GL_FRONT, GL_SPECULAR, drawable.specular);
+        glMaterialf(GL_FRONT, GL_SHININESS, drawable.shininess);
 
-        glBegin(GL_TRIANGLES);
-        for (std::size_t i = 0; i < drawable.vertices.size(); i += 3) {
-            glNormal3f(drawable.normals[i], drawable.normals[i + 1], drawable.normals[i + 2]);
-            glVertex3f(drawable.vertices[i], drawable.vertices[i + 1], drawable.vertices[i + 2]);
-        }
-        glEnd();
+        glVertexPointer(3, GL_FLOAT, 0, drawable.vertices.data());
+        glNormalPointer(GL_FLOAT, 0, drawable.normals.data());
+        const GLsizei vertexCount = static_cast<GLsizei>(drawable.vertices.size() / 3);
+        glDrawArrays(GL_TRIANGLES, 0, vertexCount);
     }
 }
 
 void display() {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    glMatrixMode(GL_PROJECTION);
-    glLoadMatrixd(g_scene.cam_transforms.P.data());
-
-    glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
     glMultMatrixd(g_scene.cam_transforms.Cinv.data());
+
     auto arcball_matrix = g_arcball.rotation().to_matrix();
     glMultMatrixd(arcball_matrix.data());
 
@@ -160,10 +191,38 @@ void display() {
     glutSwapBuffers();
 }
 
+
+// Gets the actual aspect ratio defined by our camera
+static double camera_aspect_from_P(const Eigen::Matrix4d& P) {
+    return P(1,1) / P(0,0); // Essentially (r-l)/(t-b) or width/height
+}
+
+// I found this code online, but it helped to make my renderings look
+// properly proportioned on the screen at any window size.
+// It essentially calculates if it needs to pad the window at all in order
+// to match the rendering to the necessary aspect ratio, instead of warping things
+void apply_letterboxed_viewport(int win_w, int win_h) {
+    const double A_cam = camera_aspect_from_P(g_scene.cam_transforms.P);
+    const double A_win = (double)win_w / (double)win_h;
+
+    int vx = 0, vy = 0, vw = win_w, vh = win_h;
+    if (A_win > A_cam) {
+        // window is wider -> pillarbox left/right
+        vw = (int)std::round(vh * A_cam);
+        vx = (win_w - vw) / 2;
+    } else if (A_win < A_cam) {
+        // window is taller -> letterbox top/bottom
+        vh = (int)std::round(vw / A_cam);
+        vy = (win_h - vh) / 2;
+    }
+    glViewport(vx, vy, vw, vh);
+    g_arcball.set_viewport(vx, vy, vw, vh);
+}
+
 void reshape(int width, int height) {
     g_window_width = std::max(width, 1);
     g_window_height = std::max(height, 1);
-    glViewport(0, 0, g_window_width, g_window_height);
+    apply_letterboxed_viewport(g_window_width, g_window_height);
     g_arcball.set_window(g_window_width, g_window_height);
     glutPostRedisplay();
 }
@@ -221,6 +280,7 @@ int main(int argc, char** argv) {
     glutInit(&argc, argv);
     glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH);
     glutInitWindowSize(g_window_width, g_window_height);
+    glutInitWindowPosition(0, 0);
     glutCreateWindow("OpenGL Scene Renderer");
 
     GLenum err = glewInit();

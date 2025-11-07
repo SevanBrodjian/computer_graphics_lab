@@ -12,6 +12,8 @@ using Eigen::Matrix3d;
 using Eigen::Matrix4d;
 using Eigen::Vector3d;
 
+// Reused from hw2
+
 namespace {
 std::string join_path(const std::string& parent, const std::string& filename) {
     if (parent.empty()) return filename;
