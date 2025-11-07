@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.24)
 project(hw4 LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(OpenGL_GL_PREFERENCE GLVND)
@@ -18,5 +18,7 @@ add_executable(opengl_renderer
 target_include_directories(opengl_renderer PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/Eigen)
+
+target_compile_definitions(opengl_renderer PRIVATE SHADER_DIR="${CMAKE_CURRENT_SOURCE_DIR}/shaders")
 
 target_link_libraries(opengl_renderer PRIVATE GLUT::GLUT GLEW::GLEW OpenGL::GL PNG::PNG)

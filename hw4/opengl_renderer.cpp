@@ -18,913 +18,605 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdlib>
 #include <fstream>
 #include <iostream>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
+#ifndef SHADER_DIR
+#define SHADER_DIR "./shaders"
+#endif
+
 namespace {
 
 constexpr int kMaxLights = 8;
-constexpr float kPi = 3.14159265358979323846f;
 
-enum class ProgramMode {
+enum class RunMode {
     Scene,
-    NormalMapped
+    NormalMap
 };
 
-struct DrawableObject {
-    GLuint vbo_positions{0};
-    GLuint vbo_normals{0};
-    GLsizei vertex_count{0};
-    Eigen::Vector3f ambient{0.0f, 0.0f, 0.0f};
-    Eigen::Vector3f diffuse{0.0f, 0.0f, 0.0f};
-    Eigen::Vector3f specular{0.0f, 0.0f, 0.0f};
-    float shininess{1.0f};
+struct Mesh {
+    GLuint vao = 0;
+    GLuint vbo = 0;
+    GLsizei vertex_count = 0;
+    Eigen::Vector3f ambient = Eigen::Vector3f::Zero();
+    Eigen::Vector3f diffuse = Eigen::Vector3f::Zero();
+    Eigen::Vector3f specular = Eigen::Vector3f::Zero();
+    float shininess = 32.0f;
 };
 
-struct SceneRenderer {
+struct LightState {
+    Eigen::Vector3f position;
+    Eigen::Vector3f color;
+    float attenuation = 0.0f;
+};
+
+struct SceneState {
     Scene scene;
-    std::vector<DrawableObject> drawables;
-    Arcball arcball;
-    ProgramMode mode{ProgramMode::Scene};
-    int shading_mode{0};
-
-    int window_width{800};
-    int window_height{800};
-
-    GLuint shader_program{0};
-    GLint attr_position{-1};
-    GLint attr_normal{-1};
-
-    GLint uniform_model_view{-1};
-    GLint uniform_projection{-1};
-    GLint uniform_normal_matrix{-1};
-    GLint uniform_light_count{-1};
-    GLint uniform_light_positions{-1};
-    GLint uniform_light_colors{-1};
-    GLint uniform_light_atten{-1};
-    GLint uniform_material_ambient{-1};
-    GLint uniform_material_diffuse{-1};
-    GLint uniform_material_specular{-1};
-    GLint uniform_material_shininess{-1};
-    GLint uniform_ambient_light{-1};
-    GLint uniform_shading_mode{-1};
+    std::vector<Mesh> meshes;
+    std::vector<LightState> lights;
 };
 
-struct QuadRenderer {
-    Arcball arcball;
-    int window_width{800};
-    int window_height{800};
-
-    GLuint shader_program{0};
-    GLuint vbo{0};
-    GLuint ibo{0};
-    GLuint color_texture{0};
-    GLuint normal_texture{0};
-
-    GLint attr_position{-1};
-    GLint attr_normal{-1};
-    GLint attr_tangent{-1};
-    GLint attr_bitangent{-1};
-    GLint attr_texcoord{-1};
-
-    GLint uniform_model_view{-1};
-    GLint uniform_projection{-1};
-    GLint uniform_normal_matrix{-1};
-    GLint uniform_color_tex{-1};
-    GLint uniform_normal_tex{-1};
-    GLint uniform_light_pos{-1};
-    GLint uniform_light_color{-1};
-    GLint uniform_ambient_light{-1};
-    GLint uniform_material_specular{-1};
-    GLint uniform_material_shininess{-1};
-
-    Eigen::Matrix4f view = Eigen::Matrix4f::Identity();
-    Eigen::Matrix4f projection = Eigen::Matrix4f::Identity();
+struct SceneUniforms {
+    GLint model_view = -1;
+    GLint projection = -1;
+    GLint normal_matrix = -1;
+    GLint ambient_light = -1;
+    GLint light_count = -1;
+    GLint light_positions = -1;
+    GLint light_colors = -1;
+    GLint light_atten = -1;
+    GLint material_ambient = -1;
+    GLint material_diffuse = -1;
+    GLint material_specular = -1;
+    GLint material_shininess = -1;
+    GLint shading_mode = -1;
 };
 
-ProgramMode g_program_mode = ProgramMode::Scene;
-SceneRenderer g_scene_renderer;
-QuadRenderer g_quad_renderer;
-std::string g_color_texture_path;
-std::string g_normal_texture_path;
+struct QuadUniforms {
+    GLint model_view = -1;
+    GLint projection = -1;
+    GLint normal_matrix = -1;
+    GLint color_texture = -1;
+    GLint normal_texture = -1;
+    GLint light_position = -1;
+    GLint light_color = -1;
+    GLint ambient_light = -1;
+    GLint specular = -1;
+    GLint shininess = -1;
+};
 
-// Utility helpers -----------------------------------------------------------
+struct QuadState {
+    GLuint vao = 0;
+    GLuint vbo = 0;
+    GLuint ebo = 0;
+    GLuint color_tex = 0;
+    GLuint normal_tex = 0;
+    GLsizei index_count = 0;
+};
 
-GLuint compile_shader(GLenum type, const char* source) {
+RunMode g_mode = RunMode::Scene;
+SceneState g_scene_state;
+QuadState g_quad_state;
+Arcball g_arcball;
+
+int g_window_width = 800;
+int g_window_height = 800;
+int g_shading_mode = 0; // 0 = Gouraud, 1 = Phong
+
+Eigen::Vector3f g_ambient_light(0.1f, 0.1f, 0.1f);
+
+GLuint g_scene_program = 0;
+SceneUniforms g_scene_uniforms;
+
+GLuint g_quad_program = 0;
+QuadUniforms g_quad_uniforms;
+
+std::string g_shader_dir = SHADER_DIR;
+std::string g_scene_path;
+std::string g_color_path;
+std::string g_normal_path;
+
+} // namespace
+
+// -----------------------------------------------------------------------------
+// Utility helpers
+// -----------------------------------------------------------------------------
+
+std::string load_text_file(const std::string& path) {
+    std::ifstream file(path.c_str(), std::ios::in | std::ios::binary);
+    if (!file) {
+        throw std::runtime_error("Failed to open shader file: " + path);
+    }
+    std::ostringstream buffer;
+    buffer << file.rdbuf();
+    return buffer.str();
+}
+
+GLuint compile_shader(GLenum type, const std::string& path) {
+    const std::string source = load_text_file(path);
+    const char* source_ptr = source.c_str();
+
     GLuint shader = glCreateShader(type);
-    glShaderSource(shader, 1, &source, nullptr);
+    glShaderSource(shader, 1, &source_ptr, nullptr);
     glCompileShader(shader);
 
-    GLint success = GL_FALSE;
-    glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
-    if (success != GL_TRUE) {
-        GLint log_length = 0;
-        glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &log_length);
-        std::vector<char> log(log_length + 1, '\0');
-        glGetShaderInfoLog(shader, log_length, nullptr, log.data());
-        std::string message = (type == GL_VERTEX_SHADER ? "Vertex" : "Fragment");
-        message += " shader compilation failed:\n";
-        message += log.data();
-        throw std::runtime_error(message);
+    GLint ok = GL_FALSE;
+    glGetShaderiv(shader, GL_COMPILE_STATUS, &ok);
+    if (ok != GL_TRUE) {
+        GLint log_len = 0;
+        glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &log_len);
+        std::vector<char> log(log_len + 1, '\0');
+        glGetShaderInfoLog(shader, log_len, nullptr, log.data());
+        std::string stage = (type == GL_VERTEX_SHADER) ? "vertex" : "fragment";
+        glDeleteShader(shader);
+        throw std::runtime_error("Failed to compile " + stage + " shader (" + path + "):\n" + log.data());
     }
     return shader;
 }
 
-GLuint link_program(GLuint vertex_shader, GLuint fragment_shader,
-                    const std::vector<std::pair<GLuint, const char*>>& attributes = {}) {
+GLuint link_program(GLuint vs, GLuint fs, const std::vector<std::pair<GLuint, const char*>>& attribs) {
     GLuint program = glCreateProgram();
-    glAttachShader(program, vertex_shader);
-    glAttachShader(program, fragment_shader);
-
-    for (const auto& attr : attributes) {
+    glAttachShader(program, vs);
+    glAttachShader(program, fs);
+    for (const auto& attr : attribs) {
         glBindAttribLocation(program, attr.first, attr.second);
     }
-
     glLinkProgram(program);
-    GLint success = GL_FALSE;
-    glGetProgramiv(program, GL_LINK_STATUS, &success);
-    if (success != GL_TRUE) {
-        GLint log_length = 0;
-        glGetProgramiv(program, GL_INFO_LOG_LENGTH, &log_length);
-        std::vector<char> log(log_length + 1, '\0');
-        glGetProgramInfoLog(program, log_length, nullptr, log.data());
-        std::string message = "Program link failed:\n";
-        message += log.data();
-        throw std::runtime_error(message);
+    GLint ok = GL_FALSE;
+    glGetProgramiv(program, GL_LINK_STATUS, &ok);
+    if (ok != GL_TRUE) {
+        GLint log_len = 0;
+        glGetProgramiv(program, GL_INFO_LOG_LENGTH, &log_len);
+        std::vector<char> log(log_len + 1, '\0');
+        glGetProgramInfoLog(program, log_len, nullptr, log.data());
+        throw std::runtime_error(std::string("Failed to link shader program:\n") + log.data());
     }
     return program;
 }
 
-Eigen::Matrix4f to_matrix4f(const Eigen::Matrix4d& m) {
-    return m.cast<float>();
+Eigen::Matrix4f to_matrix4f(const std::array<double, 16>& data) {
+    Eigen::Matrix4d mat_d = Eigen::Map<const Eigen::Matrix<double, 4, 4, Eigen::ColMajor>>(data.data());
+    return mat_d.cast<float>();
 }
 
-Eigen::Matrix3f normal_matrix_from(const Eigen::Matrix4f& model_view) {
-    Eigen::Matrix3f upper = model_view.block<3,3>(0,0);
-    return upper.inverse().transpose();
+Eigen::Matrix4f make_perspective(float fov_y_degrees, float aspect, float znear, float zfar) {
+    float f = 1.0f / std::tan(fov_y_degrees * 0.5f * static_cast<float>(M_PI) / 180.0f);
+    Eigen::Matrix4f result = Eigen::Matrix4f::Zero();
+    result(0,0) = f / aspect;
+    result(1,1) = f;
+    result(2,2) = (zfar + znear) / (znear - zfar);
+    result(2,3) = -1.0f;
+    result(3,2) = (2.0f * zfar * znear) / (znear - zfar);
+    return result;
 }
 
-Eigen::Matrix4f matrix_from_arcball(const Arcball& arcball) {
-    auto arr = arcball.rotation().to_matrix();
+Eigen::Matrix4f make_translation(float x, float y, float z) {
     Eigen::Matrix4f mat = Eigen::Matrix4f::Identity();
-    for (int col = 0; col < 4; ++col) {
-        for (int row = 0; row < 4; ++row) {
-            mat(row, col) = static_cast<float>(arr[col * 4 + row]);
-        }
-    }
+    mat(0,3) = x;
+    mat(1,3) = y;
+    mat(2,3) = z;
     return mat;
 }
 
-Eigen::Matrix4f perspective(float fovy_radians, float aspect, float znear, float zfar) {
-    float f = 1.0f / std::tan(fovy_radians * 0.5f);
-    Eigen::Matrix4f m = Eigen::Matrix4f::Zero();
-    m(0, 0) = f / aspect;
-    m(1, 1) = f;
-    m(2, 2) = (zfar + znear) / (znear - zfar);
-    m(2, 3) = (2.0f * zfar * znear) / (znear - zfar);
-    m(3, 2) = -1.0f;
-    return m;
-}
+// -----------------------------------------------------------------------------
+// Scene mode setup
+// -----------------------------------------------------------------------------
 
-Eigen::Matrix4f look_at(const Eigen::Vector3f& eye,
-                        const Eigen::Vector3f& center,
-                        const Eigen::Vector3f& up) {
-    Eigen::Vector3f f = (center - eye).normalized();
-    Eigen::Vector3f s = f.cross(up).normalized();
-    Eigen::Vector3f u = s.cross(f);
+void build_scene_meshes() {
+    g_scene_state.meshes.clear();
+    g_scene_state.meshes.reserve(g_scene_state.scene.scene_objects.size());
 
-    Eigen::Matrix4f m = Eigen::Matrix4f::Identity();
-    m.block<1,3>(0,0) = s.transpose();
-    m.block<1,3>(1,0) = u.transpose();
-    m.block<1,3>(2,0) = (-f).transpose();
-
-    Eigen::Matrix4f translate = Eigen::Matrix4f::Identity();
-    translate(0, 3) = -eye.x();
-    translate(1, 3) = -eye.y();
-    translate(2, 3) = -eye.z();
-
-    return m * translate;
-}
-
-float camera_aspect_from_P(const Eigen::Matrix4d& P) {
-    return static_cast<float>(P(1,1) / P(0,0));
-}
-
-struct Viewport {
-    int x{0};
-    int y{0};
-    int width{1};
-    int height{1};
-};
-
-Viewport apply_letterboxed_viewport(SceneRenderer& renderer, int win_w, int win_h) {
-    const float cam_aspect = camera_aspect_from_P(renderer.scene.cam_transforms.P);
-    const float window_aspect = static_cast<float>(win_w) / std::max(win_h, 1);
-
-    Viewport vp;
-    vp.width = win_w;
-    vp.height = win_h;
-    if (window_aspect > cam_aspect) {
-        vp.height = win_h;
-        vp.width = static_cast<int>(std::round(vp.height * cam_aspect));
-        vp.x = (win_w - vp.width) / 2;
-        vp.y = 0;
-    } else if (window_aspect < cam_aspect) {
-        vp.width = win_w;
-        vp.height = static_cast<int>(std::round(vp.width / cam_aspect));
-        vp.x = 0;
-        vp.y = (win_h - vp.height) / 2;
-    }
-    glViewport(vp.x, vp.y, std::max(vp.width,1), std::max(vp.height,1));
-    renderer.arcball.set_viewport(vp.x, vp.y, std::max(vp.width,1), std::max(vp.height,1));
-    return vp;
-}
-
-// Scene renderer ------------------------------------------------------------
-
-const char* kSceneVertexShader = R"GLSL(
-#version 120
-
-attribute vec3 aPosition;
-attribute vec3 aNormal;
-
-uniform mat4 uModelView;
-uniform mat4 uProjection;
-uniform mat3 uNormalMatrix;
-uniform int uShadingMode;
-
-const int MAX_LIGHTS = 8;
-uniform int uLightCount;
-uniform vec3 uLightPosition[MAX_LIGHTS];
-uniform vec3 uLightColor[MAX_LIGHTS];
-uniform float uLightAtten[MAX_LIGHTS];
-
-uniform vec3 uMaterialAmbient;
-uniform vec3 uMaterialDiffuse;
-uniform vec3 uMaterialSpecular;
-uniform float uMaterialShininess;
-uniform vec3 uAmbientLight;
-
-varying vec3 vPosition;
-varying vec3 vNormal;
-varying vec3 vVertexColor;
-
-vec3 applyLighting(vec3 position, vec3 normal) {
-    vec3 viewDir = normalize(-position);
-    vec3 color = uMaterialAmbient * uAmbientLight;
-    for (int i = 0; i < MAX_LIGHTS; ++i) {
-        if (i >= uLightCount) break;
-        vec3 lightVec = uLightPosition[i] - position;
-        float dist = length(lightVec);
-        if (dist > 0.0) {
-            lightVec /= dist;
-        }
-        float atten = 1.0 / (1.0 + uLightAtten[i] * dist * dist);
-        float diff = max(dot(normal, lightVec), 0.0);
-        vec3 reflectDir = reflect(-lightVec, normal);
-        float spec = 0.0;
-        if (diff > 0.0) {
-            spec = pow(max(dot(viewDir, reflectDir), 0.0), max(uMaterialShininess, 0.0));
-        }
-        vec3 lightColor = uLightColor[i];
-        color += atten * lightColor * (uMaterialDiffuse * diff + uMaterialSpecular * spec);
-    }
-    return clamp(color, 0.0, 1.0);
-}
-
-void main() {
-    vec4 viewPos = uModelView * vec4(aPosition, 1.0);
-    vec3 normal = normalize(uNormalMatrix * aNormal);
-    vPosition = viewPos.xyz;
-    vNormal = normal;
-    if (uShadingMode == 0) {
-        vVertexColor = applyLighting(viewPos.xyz, normal);
-    } else {
-        vVertexColor = vec3(0.0);
-    }
-    gl_Position = uProjection * viewPos;
-}
-)GLSL";
-
-const char* kSceneFragmentShader = R"GLSL(
-#version 120
-
-varying vec3 vPosition;
-varying vec3 vNormal;
-varying vec3 vVertexColor;
-
-const int MAX_LIGHTS = 8;
-uniform int uLightCount;
-uniform vec3 uLightPosition[MAX_LIGHTS];
-uniform vec3 uLightColor[MAX_LIGHTS];
-uniform float uLightAtten[MAX_LIGHTS];
-
-uniform vec3 uMaterialAmbient;
-uniform vec3 uMaterialDiffuse;
-uniform vec3 uMaterialSpecular;
-uniform float uMaterialShininess;
-uniform vec3 uAmbientLight;
-uniform int uShadingMode;
-
-vec3 applyLighting(vec3 position, vec3 normal) {
-    vec3 viewDir = normalize(-position);
-    vec3 color = uMaterialAmbient * uAmbientLight;
-    for (int i = 0; i < MAX_LIGHTS; ++i) {
-        if (i >= uLightCount) break;
-        vec3 lightVec = uLightPosition[i] - position;
-        float dist = length(lightVec);
-        if (dist > 0.0) {
-            lightVec /= dist;
-        }
-        float atten = 1.0 / (1.0 + uLightAtten[i] * dist * dist);
-        float diff = max(dot(normal, lightVec), 0.0);
-        vec3 reflectDir = reflect(-lightVec, normal);
-        float spec = 0.0;
-        if (diff > 0.0) {
-            spec = pow(max(dot(viewDir, reflectDir), 0.0), max(uMaterialShininess, 0.0));
-        }
-        vec3 lightColor = uLightColor[i];
-        color += atten * lightColor * (uMaterialDiffuse * diff + uMaterialSpecular * spec);
-    }
-    return clamp(color, 0.0, 1.0);
-}
-
-void main() {
-    vec3 normal = normalize(vNormal);
-    vec3 color = vVertexColor;
-    if (uShadingMode != 0) {
-        color = applyLighting(vPosition, normal);
-    }
-    gl_FragColor = vec4(color, 1.0);
-}
-)GLSL";
-
-void destroy_scene_drawables(SceneRenderer& renderer) {
-    for (auto& drawable : renderer.drawables) {
-        if (drawable.vbo_positions) {
-            glDeleteBuffers(1, &drawable.vbo_positions);
-            drawable.vbo_positions = 0;
-        }
-        if (drawable.vbo_normals) {
-            glDeleteBuffers(1, &drawable.vbo_normals);
-            drawable.vbo_normals = 0;
-        }
-    }
-    renderer.drawables.clear();
-}
-
-void build_scene_drawables(SceneRenderer& renderer) {
-    destroy_scene_drawables(renderer);
-    renderer.drawables.reserve(renderer.scene.scene_objects.size());
-
-    for (const auto& inst : renderer.scene.scene_objects) {
-        DrawableObject drawable;
-        std::vector<GLfloat> positions;
-        std::vector<GLfloat> normals;
-        positions.reserve(inst.obj.faces.size() * 9);
-        normals.reserve(inst.obj.faces.size() * 9);
-
-        auto fill_material = [](const Eigen::Vector3d& src) {
-            return Eigen::Vector3f(static_cast<float>(src[0]),
-                                   static_cast<float>(src[1]),
-                                   static_cast<float>(src[2]));
-        };
-        drawable.ambient = fill_material(inst.ambient);
-        drawable.diffuse = fill_material(inst.diffuse);
-        drawable.specular = fill_material(inst.specular);
-        drawable.shininess = static_cast<float>(std::clamp(inst.shininess, 0.0, 128.0));
+    for (const auto& inst : g_scene_state.scene.scene_objects) {
+        std::vector<float> interleaved;
+        interleaved.reserve(inst.obj.faces.size() * 3 * 6);
 
         for (const auto& face : inst.obj.faces) {
-            const Vertex& v1 = inst.obj.vertices[face.v1];
-            const Vertex& v2 = inst.obj.vertices[face.v2];
-            const Vertex& v3 = inst.obj.vertices[face.v3];
-            const Normal& n1 = inst.obj.normals[face.vn1];
-            const Normal& n2 = inst.obj.normals[face.vn2];
-            const Normal& n3 = inst.obj.normals[face.vn3];
+            const Vertex& v1 = inst.obj.vertices.at(face.v1);
+            const Vertex& v2 = inst.obj.vertices.at(face.v2);
+            const Vertex& v3 = inst.obj.vertices.at(face.v3);
+            const Normal& n1 = inst.obj.normals.at(face.vn1);
+            const Normal& n2 = inst.obj.normals.at(face.vn2);
+            const Normal& n3 = inst.obj.normals.at(face.vn3);
 
-            const std::array<const Vertex*, 3> verts{&v1, &v2, &v3};
-            const std::array<const Normal*, 3> norms{&n1, &n2, &n3};
+            const Vertex* vertices[3] = {&v1, &v2, &v3};
+            const Normal* normals[3] = {&n1, &n2, &n3};
             for (int i = 0; i < 3; ++i) {
-                positions.push_back(static_cast<GLfloat>(verts[i]->x));
-                positions.push_back(static_cast<GLfloat>(verts[i]->y));
-                positions.push_back(static_cast<GLfloat>(verts[i]->z));
-
-                normals.push_back(static_cast<GLfloat>(norms[i]->x));
-                normals.push_back(static_cast<GLfloat>(norms[i]->y));
-                normals.push_back(static_cast<GLfloat>(norms[i]->z));
+                interleaved.push_back(static_cast<float>(vertices[i]->x));
+                interleaved.push_back(static_cast<float>(vertices[i]->y));
+                interleaved.push_back(static_cast<float>(vertices[i]->z));
+                interleaved.push_back(static_cast<float>(normals[i]->x));
+                interleaved.push_back(static_cast<float>(normals[i]->y));
+                interleaved.push_back(static_cast<float>(normals[i]->z));
             }
         }
 
-        drawable.vertex_count = static_cast<GLsizei>(positions.size() / 3);
-        glGenBuffers(1, &drawable.vbo_positions);
-        glBindBuffer(GL_ARRAY_BUFFER, drawable.vbo_positions);
-        glBufferData(GL_ARRAY_BUFFER, positions.size() * sizeof(GLfloat), positions.data(), GL_STATIC_DRAW);
+        Mesh mesh;
+        mesh.vertex_count = static_cast<GLsizei>(interleaved.size() / 6);
+        mesh.ambient = inst.ambient.cast<float>();
+        mesh.diffuse = inst.diffuse.cast<float>();
+        mesh.specular = inst.specular.cast<float>();
+        mesh.shininess = static_cast<float>(std::max(0.0, std::min(inst.shininess, 200.0)));
 
-        glGenBuffers(1, &drawable.vbo_normals);
-        glBindBuffer(GL_ARRAY_BUFFER, drawable.vbo_normals);
-        glBufferData(GL_ARRAY_BUFFER, normals.size() * sizeof(GLfloat), normals.data(), GL_STATIC_DRAW);
+        glGenVertexArrays(1, &mesh.vao);
+        glBindVertexArray(mesh.vao);
 
-        renderer.drawables.push_back(std::move(drawable));
+        glGenBuffers(1, &mesh.vbo);
+        glBindBuffer(GL_ARRAY_BUFFER, mesh.vbo);
+        glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(interleaved.size() * sizeof(float)),
+                     interleaved.data(), GL_STATIC_DRAW);
+
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), reinterpret_cast<void*>(0));
+        glEnableVertexAttribArray(1);
+        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), reinterpret_cast<void*>(3 * sizeof(float)));
+
+        glBindVertexArray(0);
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+        g_scene_state.meshes.push_back(mesh);
     }
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
 }
 
-void init_scene_shader(SceneRenderer& renderer) {
-    GLuint vs = compile_shader(GL_VERTEX_SHADER, kSceneVertexShader);
-    GLuint fs = compile_shader(GL_FRAGMENT_SHADER, kSceneFragmentShader);
+void init_scene_lights() {
+    g_scene_state.lights.clear();
+    for (const auto& light : g_scene_state.scene.lights) {
+        LightState state;
+        state.position = Eigen::Vector3f(static_cast<float>(light.x), static_cast<float>(light.y), static_cast<float>(light.z));
+        state.color = Eigen::Vector3f(static_cast<float>(light.r), static_cast<float>(light.g), static_cast<float>(light.b));
+        state.attenuation = static_cast<float>(light.atten);
+        g_scene_state.lights.push_back(state);
+    }
+}
 
-    renderer.shader_program = link_program(vs, fs, {
-        {0, "aPosition"},
-        {1, "aNormal"}
-    });
+void create_scene_program() {
+    const std::string vertex_path = g_shader_dir + "/scene.vert";
+    const std::string fragment_path = g_shader_dir + "/scene.frag";
 
+    GLuint vs = compile_shader(GL_VERTEX_SHADER, vertex_path);
+    GLuint fs = compile_shader(GL_FRAGMENT_SHADER, fragment_path);
+    g_scene_program = link_program(vs, fs, {{0, "aPosition"}, {1, "aNormal"}});
     glDeleteShader(vs);
     glDeleteShader(fs);
 
-    renderer.attr_position = 0;
-    renderer.attr_normal = 1;
-
-    renderer.uniform_model_view = glGetUniformLocation(renderer.shader_program, "uModelView");
-    renderer.uniform_projection = glGetUniformLocation(renderer.shader_program, "uProjection");
-    renderer.uniform_normal_matrix = glGetUniformLocation(renderer.shader_program, "uNormalMatrix");
-    renderer.uniform_light_count = glGetUniformLocation(renderer.shader_program, "uLightCount");
-    renderer.uniform_light_positions = glGetUniformLocation(renderer.shader_program, "uLightPosition");
-    renderer.uniform_light_colors = glGetUniformLocation(renderer.shader_program, "uLightColor");
-    renderer.uniform_light_atten = glGetUniformLocation(renderer.shader_program, "uLightAtten");
-    renderer.uniform_material_ambient = glGetUniformLocation(renderer.shader_program, "uMaterialAmbient");
-    renderer.uniform_material_diffuse = glGetUniformLocation(renderer.shader_program, "uMaterialDiffuse");
-    renderer.uniform_material_specular = glGetUniformLocation(renderer.shader_program, "uMaterialSpecular");
-    renderer.uniform_material_shininess = glGetUniformLocation(renderer.shader_program, "uMaterialShininess");
-    renderer.uniform_ambient_light = glGetUniformLocation(renderer.shader_program, "uAmbientLight");
-    renderer.uniform_shading_mode = glGetUniformLocation(renderer.shader_program, "uShadingMode");
+    g_scene_uniforms.model_view = glGetUniformLocation(g_scene_program, "uModelView");
+    g_scene_uniforms.projection = glGetUniformLocation(g_scene_program, "uProjection");
+    g_scene_uniforms.normal_matrix = glGetUniformLocation(g_scene_program, "uNormalMatrix");
+    g_scene_uniforms.ambient_light = glGetUniformLocation(g_scene_program, "uAmbientLight");
+    g_scene_uniforms.light_count = glGetUniformLocation(g_scene_program, "uLightCount");
+    g_scene_uniforms.light_positions = glGetUniformLocation(g_scene_program, "uLightPositions");
+    g_scene_uniforms.light_colors = glGetUniformLocation(g_scene_program, "uLightColors");
+    g_scene_uniforms.light_atten = glGetUniformLocation(g_scene_program, "uLightAttenuations");
+    g_scene_uniforms.material_ambient = glGetUniformLocation(g_scene_program, "uMaterialAmbient");
+    g_scene_uniforms.material_diffuse = glGetUniformLocation(g_scene_program, "uMaterialDiffuse");
+    g_scene_uniforms.material_specular = glGetUniformLocation(g_scene_program, "uMaterialSpecular");
+    g_scene_uniforms.material_shininess = glGetUniformLocation(g_scene_program, "uMaterialShininess");
+    g_scene_uniforms.shading_mode = glGetUniformLocation(g_scene_program, "uShadingMode");
 }
 
-void init_scene_renderer(SceneRenderer& renderer) {
-    glEnable(GL_DEPTH_TEST);
-    glEnable(GL_CULL_FACE);
-    glCullFace(GL_BACK);
-    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+// -----------------------------------------------------------------------------
+// Normal map mode setup
+// -----------------------------------------------------------------------------
 
-    init_scene_shader(renderer);
-    build_scene_drawables(renderer);
-}
+void create_quad_program() {
+    const std::string vertex_path = g_shader_dir + "/quad.vert";
+    const std::string fragment_path = g_shader_dir + "/quad.frag";
 
-void render_scene(SceneRenderer& renderer) {
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-    glUseProgram(renderer.shader_program);
-
-    Eigen::Matrix4f view = to_matrix4f(renderer.scene.cam_transforms.Cinv);
-    Eigen::Matrix4f projection = to_matrix4f(renderer.scene.cam_transforms.P);
-    Eigen::Matrix4f model = matrix_from_arcball(renderer.arcball);
-    Eigen::Matrix4f model_view = view * model;
-    Eigen::Matrix3f normal_matrix = normal_matrix_from(model_view);
-
-    glUniformMatrix4fv(renderer.uniform_model_view, 1, GL_FALSE, model_view.data());
-    glUniformMatrix4fv(renderer.uniform_projection, 1, GL_FALSE, projection.data());
-    glUniformMatrix3fv(renderer.uniform_normal_matrix, 1, GL_FALSE, normal_matrix.data());
-    glUniform1i(renderer.uniform_shading_mode, renderer.shading_mode);
-
-    const int light_count = std::min<int>(renderer.scene.lights.size(), kMaxLights);
-    std::vector<Eigen::Vector3f> light_positions(light_count);
-    std::vector<Eigen::Vector3f> light_colors(light_count);
-    std::vector<float> light_atten(light_count);
-
-    for (int i = 0; i < light_count; ++i) {
-        const auto& light = renderer.scene.lights[i];
-        Eigen::Vector4f pos(static_cast<float>(light.x),
-                            static_cast<float>(light.y),
-                            static_cast<float>(light.z),
-                            1.0f);
-        pos = model * pos; // rotate with the arcball
-        pos = view * pos;
-        light_positions[i] = pos.head<3>();
-        light_colors[i] = Eigen::Vector3f(static_cast<float>(light.r),
-                                          static_cast<float>(light.g),
-                                          static_cast<float>(light.b));
-        light_atten[i] = static_cast<float>(light.atten);
-    }
-
-    glUniform1i(renderer.uniform_light_count, light_count);
-    if (light_count > 0) {
-        glUniform3fv(renderer.uniform_light_positions, light_count, light_positions[0].data());
-        glUniform3fv(renderer.uniform_light_colors, light_count, light_colors[0].data());
-        glUniform1fv(renderer.uniform_light_atten, light_count, light_atten.data());
-    }
-
-    Eigen::Vector3f ambient_light(1.0f, 1.0f, 1.0f);
-    glUniform3fv(renderer.uniform_ambient_light, 1, ambient_light.data());
-
-    for (const auto& drawable : renderer.drawables) {
-        glUniform3fv(renderer.uniform_material_ambient, 1, drawable.ambient.data());
-        glUniform3fv(renderer.uniform_material_diffuse, 1, drawable.diffuse.data());
-        glUniform3fv(renderer.uniform_material_specular, 1, drawable.specular.data());
-        glUniform1f(renderer.uniform_material_shininess, drawable.shininess);
-
-        glBindBuffer(GL_ARRAY_BUFFER, drawable.vbo_positions);
-        glEnableVertexAttribArray(renderer.attr_position);
-        glVertexAttribPointer(renderer.attr_position, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
-
-        glBindBuffer(GL_ARRAY_BUFFER, drawable.vbo_normals);
-        glEnableVertexAttribArray(renderer.attr_normal);
-        glVertexAttribPointer(renderer.attr_normal, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
-
-        glDrawArrays(GL_TRIANGLES, 0, drawable.vertex_count);
-
-        glDisableVertexAttribArray(renderer.attr_position);
-        glDisableVertexAttribArray(renderer.attr_normal);
-    }
-
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
-    glUseProgram(0);
-
-    glutSwapBuffers();
-}
-
-// Normal mapped quad -------------------------------------------------------
-
-const char* kQuadVertexShader = R"GLSL(
-#version 120
-
-attribute vec3 aPosition;
-attribute vec3 aNormal;
-attribute vec3 aTangent;
-attribute vec3 aBitangent;
-attribute vec2 aTexCoord;
-
-uniform mat4 uModelView;
-uniform mat4 uProjection;
-uniform mat3 uNormalMatrix;
-
-varying vec3 vPosition;
-varying vec3 vNormal;
-varying vec3 vTangent;
-varying vec3 vBitangent;
-varying vec2 vTexCoord;
-
-void main() {
-    vec4 viewPos = uModelView * vec4(aPosition, 1.0);
-    vPosition = viewPos.xyz;
-    vNormal = normalize(uNormalMatrix * aNormal);
-    vTangent = normalize(uNormalMatrix * aTangent);
-    vBitangent = normalize(uNormalMatrix * aBitangent);
-    vTexCoord = aTexCoord;
-    gl_Position = uProjection * viewPos;
-}
-)GLSL";
-
-const char* kQuadFragmentShader = R"GLSL(
-#version 120
-
-varying vec3 vPosition;
-varying vec3 vNormal;
-varying vec3 vTangent;
-varying vec3 vBitangent;
-varying vec2 vTexCoord;
-
-uniform sampler2D uColorTex;
-uniform sampler2D uNormalTex;
-uniform vec3 uLightPos;
-uniform vec3 uLightColor;
-uniform vec3 uAmbientLight;
-uniform vec3 uMaterialSpecular;
-uniform float uMaterialShininess;
-
-vec3 applyLighting(vec3 position, vec3 normal, vec3 baseColor) {
-    vec3 viewDir = normalize(-position);
-    vec3 lightVec = uLightPos - position;
-    float dist = length(lightVec);
-    if (dist > 0.0) {
-        lightVec /= dist;
-    }
-    float diff = max(dot(normal, lightVec), 0.0);
-    vec3 reflectDir = reflect(-lightVec, normal);
-    float spec = 0.0;
-    if (diff > 0.0) {
-        spec = pow(max(dot(viewDir, reflectDir), 0.0), max(uMaterialShininess, 0.0));
-    }
-
-    vec3 color = baseColor * uAmbientLight;
-    color += baseColor * diff * uLightColor;
-    color += uMaterialSpecular * spec * uLightColor;
-    return clamp(color, 0.0, 1.0);
-}
-
-void main() {
-    vec3 tangent = normalize(vTangent);
-    vec3 bitangent = normalize(vBitangent);
-    vec3 normal = normalize(vNormal);
-    mat3 TBN = mat3(tangent, bitangent, normal);
-
-    vec3 sampledNormal = texture2D(uNormalTex, vTexCoord).rgb;
-    sampledNormal = normalize(sampledNormal * 2.0 - 1.0);
-    vec3 worldNormal = normalize(TBN * sampledNormal);
-
-    vec3 baseColor = texture2D(uColorTex, vTexCoord).rgb;
-    vec3 color = applyLighting(vPosition, worldNormal, baseColor);
-    gl_FragColor = vec4(color, 1.0);
-}
-)GLSL";
-
-void destroy_quad_buffers(QuadRenderer& renderer) {
-    if (renderer.vbo) {
-        glDeleteBuffers(1, &renderer.vbo);
-        renderer.vbo = 0;
-    }
-    if (renderer.ibo) {
-        glDeleteBuffers(1, &renderer.ibo);
-        renderer.ibo = 0;
-    }
-    if (renderer.color_texture) {
-        glDeleteTextures(1, &renderer.color_texture);
-        renderer.color_texture = 0;
-    }
-    if (renderer.normal_texture) {
-        glDeleteTextures(1, &renderer.normal_texture);
-        renderer.normal_texture = 0;
-    }
-}
-
-void init_quad_renderer(QuadRenderer& renderer) {
-    GLuint vs = compile_shader(GL_VERTEX_SHADER, kQuadVertexShader);
-    GLuint fs = compile_shader(GL_FRAGMENT_SHADER, kQuadFragmentShader);
-    renderer.shader_program = link_program(vs, fs, {
-        {0, "aPosition"},
-        {1, "aNormal"},
-        {2, "aTangent"},
-        {3, "aBitangent"},
-        {4, "aTexCoord"}
-    });
+    GLuint vs = compile_shader(GL_VERTEX_SHADER, vertex_path);
+    GLuint fs = compile_shader(GL_FRAGMENT_SHADER, fragment_path);
+    g_quad_program = link_program(vs, fs, {{0, "aPosition"}, {1, "aNormal"}, {2, "aTangent"}, {3, "aBitangent"}, {4, "aTexCoord"}});
     glDeleteShader(vs);
     glDeleteShader(fs);
 
-    renderer.attr_position = 0;
-    renderer.attr_normal = 1;
-    renderer.attr_tangent = 2;
-    renderer.attr_bitangent = 3;
-    renderer.attr_texcoord = 4;
+    g_quad_uniforms.model_view = glGetUniformLocation(g_quad_program, "uModelView");
+    g_quad_uniforms.projection = glGetUniformLocation(g_quad_program, "uProjection");
+    g_quad_uniforms.normal_matrix = glGetUniformLocation(g_quad_program, "uNormalMatrix");
+    g_quad_uniforms.color_texture = glGetUniformLocation(g_quad_program, "uColorTexture");
+    g_quad_uniforms.normal_texture = glGetUniformLocation(g_quad_program, "uNormalTexture");
+    g_quad_uniforms.light_position = glGetUniformLocation(g_quad_program, "uLightPosition");
+    g_quad_uniforms.light_color = glGetUniformLocation(g_quad_program, "uLightColor");
+    g_quad_uniforms.ambient_light = glGetUniformLocation(g_quad_program, "uAmbientLight");
+    g_quad_uniforms.specular = glGetUniformLocation(g_quad_program, "uSpecularColor");
+    g_quad_uniforms.shininess = glGetUniformLocation(g_quad_program, "uShininess");
+}
 
-    renderer.uniform_model_view = glGetUniformLocation(renderer.shader_program, "uModelView");
-    renderer.uniform_projection = glGetUniformLocation(renderer.shader_program, "uProjection");
-    renderer.uniform_normal_matrix = glGetUniformLocation(renderer.shader_program, "uNormalMatrix");
-    renderer.uniform_color_tex = glGetUniformLocation(renderer.shader_program, "uColorTex");
-    renderer.uniform_normal_tex = glGetUniformLocation(renderer.shader_program, "uNormalTex");
-    renderer.uniform_light_pos = glGetUniformLocation(renderer.shader_program, "uLightPos");
-    renderer.uniform_light_color = glGetUniformLocation(renderer.shader_program, "uLightColor");
-    renderer.uniform_ambient_light = glGetUniformLocation(renderer.shader_program, "uAmbientLight");
-    renderer.uniform_material_specular = glGetUniformLocation(renderer.shader_program, "uMaterialSpecular");
-    renderer.uniform_material_shininess = glGetUniformLocation(renderer.shader_program, "uMaterialShininess");
-
-    struct Vertex {
-        GLfloat position[3];
-        GLfloat normal[3];
-        GLfloat tangent[3];
-        GLfloat bitangent[3];
-        GLfloat texcoord[2];
+void build_quad_geometry() {
+    struct VertexData {
+        float px, py, pz;
+        float nx, ny, nz;
+        float tx, ty, tz;
+        float bx, by, bz;
+        float u, v;
     };
 
-    const std::array<Vertex, 4> vertices = {{{
-        {-1.0f, -1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}
-    },{
-        {1.0f, -1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}
-    },{
-        {1.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 1.0f}
-    },{
-        {-1.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 1.0f}
-    }}};
+    const VertexData vertices[] = {
+        { -1.0f, -1.0f, 0.0f, 0.f, 0.f, 1.f, 1.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f },
+        {  1.0f, -1.0f, 0.0f, 0.f, 0.f, 1.f, 1.f, 0.f, 0.f, 0.f, 1.f, 1.f, 0.f },
+        {  1.0f,  1.0f, 0.0f, 0.f, 0.f, 1.f, 1.f, 0.f, 0.f, 0.f, 1.f, 1.f, 1.f },
+        { -1.0f,  1.0f, 0.0f, 0.f, 0.f, 1.f, 1.f, 0.f, 0.f, 0.f, 1.f, 0.f, 1.f },
+    };
 
-    const std::array<GLushort, 6> indices = {0, 1, 2, 0, 2, 3};
+    const unsigned int indices[] = {0, 1, 2, 0, 2, 3};
 
-    glGenBuffers(1, &renderer.vbo);
-    glBindBuffer(GL_ARRAY_BUFFER, renderer.vbo);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices.data(), GL_STATIC_DRAW);
+    glGenVertexArrays(1, &g_quad_state.vao);
+    glBindVertexArray(g_quad_state.vao);
 
-    glGenBuffers(1, &renderer.ibo);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, renderer.ibo);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices.data(), GL_STATIC_DRAW);
+    glGenBuffers(1, &g_quad_state.vbo);
+    glBindBuffer(GL_ARRAY_BUFFER, g_quad_state.vbo);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
 
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+    glGenBuffers(1, &g_quad_state.ebo);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, g_quad_state.ebo);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
 
-    renderer.color_texture = load_png_texture(g_color_texture_path);
-    renderer.normal_texture = load_png_texture(g_normal_texture_path);
+    const GLsizei stride = sizeof(VertexData);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(0));
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(3 * sizeof(float)));
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(6 * sizeof(float)));
+    glEnableVertexAttribArray(3);
+    glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(9 * sizeof(float)));
+    glEnableVertexAttribArray(4);
+    glVertexAttribPointer(4, 2, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(12 * sizeof(float)));
 
-    glEnable(GL_DEPTH_TEST);
-    glEnable(GL_CULL_FACE);
-    glCullFace(GL_BACK);
-    glClearColor(0.2f, 0.2f, 0.2f, 1.0f);
-
-    renderer.view = look_at({0.0f, 0.0f, 4.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f});
-    renderer.projection = perspective(kPi / 4.0f, 1.0f, 0.1f, 100.0f);
+    glBindVertexArray(0);
+    g_quad_state.index_count = 6;
 }
 
-void render_quad(QuadRenderer& renderer) {
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+// -----------------------------------------------------------------------------
+// Rendering helpers
+// -----------------------------------------------------------------------------
 
-    glUseProgram(renderer.shader_program);
+Eigen::Matrix4f compute_scene_model_view() {
+    const auto arcball_data = g_arcball.rotation().to_matrix();
+    Eigen::Matrix4f arcball = to_matrix4f(arcball_data);
+    Eigen::Matrix4f camera = Eigen::Map<const Eigen::Matrix<double, 4, 4, Eigen::ColMajor>>(g_scene_state.scene.cam_transforms.Cinv.data()).cast<float>();
+    return camera * arcball;
+}
 
-    Eigen::Matrix4f model = matrix_from_arcball(renderer.arcball);
-    Eigen::Matrix4f model_view = renderer.view * model;
-    Eigen::Matrix3f normal_matrix = normal_matrix_from(model_view);
+Eigen::Matrix4f compute_scene_projection() {
+    return Eigen::Map<const Eigen::Matrix<double, 4, 4, Eigen::ColMajor>>(g_scene_state.scene.cam_transforms.P.data()).cast<float>();
+}
 
-    glUniformMatrix4fv(renderer.uniform_model_view, 1, GL_FALSE, model_view.data());
-    glUniformMatrix4fv(renderer.uniform_projection, 1, GL_FALSE, renderer.projection.data());
-    glUniformMatrix3fv(renderer.uniform_normal_matrix, 1, GL_FALSE, normal_matrix.data());
+void upload_scene_globals(const Eigen::Matrix4f& model_view, const Eigen::Matrix4f& projection) {
+    Eigen::Matrix3f normal_matrix = model_view.block<3,3>(0,0).inverse().transpose();
+    glUniformMatrix4fv(g_scene_uniforms.model_view, 1, GL_FALSE, model_view.data());
+    glUniformMatrix4fv(g_scene_uniforms.projection, 1, GL_FALSE, projection.data());
+    glUniformMatrix3fv(g_scene_uniforms.normal_matrix, 1, GL_FALSE, normal_matrix.data());
+    glUniform3fv(g_scene_uniforms.ambient_light, 1, g_ambient_light.data());
 
-    Eigen::Vector3f light_pos = (renderer.view * Eigen::Vector4f(0.0f, 0.0f, 4.0f, 1.0f)).head<3>();
-    Eigen::Vector3f light_color(1.0f, 1.0f, 1.0f);
-    Eigen::Vector3f ambient(0.2f, 0.2f, 0.2f);
-    Eigen::Vector3f specular(0.4f, 0.4f, 0.4f);
-    float shininess = 32.0f;
+    GLint light_count = static_cast<GLint>(std::min<std::size_t>(g_scene_state.lights.size(), kMaxLights));
+    glUniform1i(g_scene_uniforms.light_count, light_count);
 
-    glUniform3fv(renderer.uniform_light_pos, 1, light_pos.data());
-    glUniform3fv(renderer.uniform_light_color, 1, light_color.data());
-    glUniform3fv(renderer.uniform_ambient_light, 1, ambient.data());
-    glUniform3fv(renderer.uniform_material_specular, 1, specular.data());
-    glUniform1f(renderer.uniform_material_shininess, shininess);
+    std::array<GLfloat, kMaxLights * 3> positions{};
+    std::array<GLfloat, kMaxLights * 3> colors{};
+    std::array<GLfloat, kMaxLights> atten{};
+
+    for (GLint i = 0; i < light_count; ++i) {
+        positions[i * 3 + 0] = g_scene_state.lights[i].position.x();
+        positions[i * 3 + 1] = g_scene_state.lights[i].position.y();
+        positions[i * 3 + 2] = g_scene_state.lights[i].position.z();
+        colors[i * 3 + 0] = g_scene_state.lights[i].color.x();
+        colors[i * 3 + 1] = g_scene_state.lights[i].color.y();
+        colors[i * 3 + 2] = g_scene_state.lights[i].color.z();
+        atten[i] = g_scene_state.lights[i].attenuation;
+    }
+
+    glUniform3fv(g_scene_uniforms.light_positions, light_count, positions.data());
+    glUniform3fv(g_scene_uniforms.light_colors, light_count, colors.data());
+    glUniform1fv(g_scene_uniforms.light_atten, light_count, atten.data());
+    glUniform1i(g_scene_uniforms.shading_mode, g_shading_mode);
+}
+
+void render_scene_mode() {
+    glUseProgram(g_scene_program);
+    Eigen::Matrix4f model_view = compute_scene_model_view();
+    Eigen::Matrix4f projection = compute_scene_projection();
+    upload_scene_globals(model_view, projection);
+
+    for (const auto& mesh : g_scene_state.meshes) {
+        glUniform3fv(g_scene_uniforms.material_ambient, 1, mesh.ambient.data());
+        glUniform3fv(g_scene_uniforms.material_diffuse, 1, mesh.diffuse.data());
+        glUniform3fv(g_scene_uniforms.material_specular, 1, mesh.specular.data());
+        glUniform1f(g_scene_uniforms.material_shininess, mesh.shininess);
+
+        glBindVertexArray(mesh.vao);
+        glDrawArrays(GL_TRIANGLES, 0, mesh.vertex_count);
+    }
+    glBindVertexArray(0);
+}
+
+void render_normal_map_mode() {
+    glUseProgram(g_quad_program);
+
+    const auto arcball_data = g_arcball.rotation().to_matrix();
+    Eigen::Matrix4f model = to_matrix4f(arcball_data);
+    Eigen::Matrix4f view = make_translation(0.0f, 0.0f, -3.0f);
+    Eigen::Matrix4f model_view = view * model;
+    float aspect = std::max(1, g_window_width) / static_cast<float>(std::max(1, g_window_height));
+    Eigen::Matrix4f projection = make_perspective(45.0f, aspect, 0.1f, 20.0f);
+    Eigen::Matrix3f normal_matrix = model_view.block<3,3>(0,0).inverse().transpose();
+
+    glUniformMatrix4fv(g_quad_uniforms.model_view, 1, GL_FALSE, model_view.data());
+    glUniformMatrix4fv(g_quad_uniforms.projection, 1, GL_FALSE, projection.data());
+    glUniformMatrix3fv(g_quad_uniforms.normal_matrix, 1, GL_FALSE, normal_matrix.data());
+
+    glUniform3f(g_quad_uniforms.light_position, 0.0f, 0.0f, 3.0f);
+    glUniform3f(g_quad_uniforms.light_color, 1.0f, 1.0f, 1.0f);
+    glUniform3fv(g_quad_uniforms.ambient_light, 1, g_ambient_light.data());
+    glUniform3f(g_quad_uniforms.specular, 0.4f, 0.4f, 0.4f);
+    glUniform1f(g_quad_uniforms.shininess, 32.0f);
 
     glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, renderer.color_texture);
-    glUniform1i(renderer.uniform_color_tex, 0);
+    glBindTexture(GL_TEXTURE_2D, g_quad_state.color_tex);
+    glUniform1i(g_quad_uniforms.color_texture, 0);
 
     glActiveTexture(GL_TEXTURE1);
-    glBindTexture(GL_TEXTURE_2D, renderer.normal_texture);
-    glUniform1i(renderer.uniform_normal_tex, 1);
+    glBindTexture(GL_TEXTURE_2D, g_quad_state.normal_tex);
+    glUniform1i(g_quad_uniforms.normal_texture, 1);
 
-    glBindBuffer(GL_ARRAY_BUFFER, renderer.vbo);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, renderer.ibo);
+    glBindVertexArray(g_quad_state.vao);
+    glDrawElements(GL_TRIANGLES, g_quad_state.index_count, GL_UNSIGNED_INT, nullptr);
+    glBindVertexArray(0);
+}
 
-    const GLsizei stride = sizeof(float) * (3 + 3 + 3 + 3 + 2);
-    std::size_t offset = 0;
-    glEnableVertexAttribArray(renderer.attr_position);
-    glVertexAttribPointer(renderer.attr_position, 3, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<const void*>(offset));
+// -----------------------------------------------------------------------------
+// GLUT callbacks
+// -----------------------------------------------------------------------------
 
-    offset += sizeof(float) * 3;
-    glEnableVertexAttribArray(renderer.attr_normal);
-    glVertexAttribPointer(renderer.attr_normal, 3, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<const void*>(offset));
-
-    offset += sizeof(float) * 3;
-    glEnableVertexAttribArray(renderer.attr_tangent);
-    glVertexAttribPointer(renderer.attr_tangent, 3, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<const void*>(offset));
-
-    offset += sizeof(float) * 3;
-    glEnableVertexAttribArray(renderer.attr_bitangent);
-    glVertexAttribPointer(renderer.attr_bitangent, 3, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<const void*>(offset));
-
-    offset += sizeof(float) * 3;
-    glEnableVertexAttribArray(renderer.attr_texcoord);
-    glVertexAttribPointer(renderer.attr_texcoord, 2, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<const void*>(offset));
-
-    glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, nullptr);
-
-    glDisableVertexAttribArray(renderer.attr_position);
-    glDisableVertexAttribArray(renderer.attr_normal);
-    glDisableVertexAttribArray(renderer.attr_tangent);
-    glDisableVertexAttribArray(renderer.attr_bitangent);
-    glDisableVertexAttribArray(renderer.attr_texcoord);
-
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
-    glBindTexture(GL_TEXTURE_2D, 0);
-    glUseProgram(0);
-
+void display() {
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    if (g_mode == RunMode::Scene) {
+        render_scene_mode();
+    } else {
+        render_normal_map_mode();
+    }
     glutSwapBuffers();
 }
 
-// GLUT callbacks ------------------------------------------------------------
-
-void display_callback() {
-    if (g_program_mode == ProgramMode::Scene) {
-        render_scene(g_scene_renderer);
-    } else {
-        render_quad(g_quad_renderer);
-    }
+double camera_aspect() {
+    const Eigen::Matrix4d& P = g_scene_state.scene.cam_transforms.P;
+    return P(1,1) / P(0,0);
 }
 
-void reshape_callback(int width, int height) {
-    if (width <= 0) width = 1;
-    if (height <= 0) height = 1;
+void apply_scene_viewport(int width, int height) {
+    double target = camera_aspect();
+    double win_aspect = static_cast<double>(width) / static_cast<double>(height);
 
-    if (g_program_mode == ProgramMode::Scene) {
-        g_scene_renderer.window_width = width;
-        g_scene_renderer.window_height = height;
-        g_scene_renderer.arcball.set_window(width, height);
-        auto vp = apply_letterboxed_viewport(g_scene_renderer, width, height);
-        (void)vp;
-    } else {
-        g_quad_renderer.window_width = width;
-        g_quad_renderer.window_height = height;
-        g_quad_renderer.arcball.set_window(width, height);
-        g_quad_renderer.arcball.set_viewport(0, 0, width, height);
-        glViewport(0, 0, width, height);
-        float aspect = static_cast<float>(width) / static_cast<float>(height);
-        g_quad_renderer.projection = perspective(kPi / 4.0f, aspect, 0.1f, 100.0f);
+    int vx = 0, vy = 0, vw = width, vh = height;
+    if (win_aspect > target) {
+        vw = static_cast<int>(std::round(vh * target));
+        vx = (width - vw) / 2;
+    } else if (win_aspect < target) {
+        vh = static_cast<int>(std::round(vw / target));
+        vy = (height - vh) / 2;
     }
+    glViewport(vx, vy, vw, vh);
+    g_arcball.set_viewport(vx, vy, vw, vh);
+}
+
+void reshape(int width, int height) {
+    g_window_width = std::max(width, 1);
+    g_window_height = std::max(height, 1);
+    if (g_mode == RunMode::Scene) {
+        apply_scene_viewport(g_window_width, g_window_height);
+    } else {
+        glViewport(0, 0, g_window_width, g_window_height);
+        g_arcball.set_viewport(0, 0, g_window_width, g_window_height);
+    }
+    g_arcball.set_window(g_window_width, g_window_height);
     glutPostRedisplay();
 }
 
-void mouse_callback(int button, int state, int x, int y) {
-    if (button != GLUT_LEFT_BUTTON) return;
-    if (state == GLUT_DOWN) {
-        if (g_program_mode == ProgramMode::Scene) {
-            g_scene_renderer.arcball.begin_drag(x, y);
-        } else {
-            g_quad_renderer.arcball.begin_drag(x, y);
+void mouse(int button, int state, int x, int y) {
+    if (button == GLUT_LEFT_BUTTON) {
+        if (state == GLUT_DOWN) {
+            g_arcball.begin_drag(x, y);
+        } else if (state == GLUT_UP) {
+            g_arcball.end_drag();
         }
-    } else if (state == GLUT_UP) {
-        if (g_program_mode == ProgramMode::Scene) {
-            g_scene_renderer.arcball.end_drag();
-        } else {
-            g_quad_renderer.arcball.end_drag();
-        }
+        glutPostRedisplay();
     }
+}
+
+void motion(int x, int y) {
+    g_arcball.update_drag(x, y);
     glutPostRedisplay();
 }
 
-void motion_callback(int x, int y) {
-    if (g_program_mode == ProgramMode::Scene) {
-        g_scene_renderer.arcball.update_drag(x, y);
-    } else {
-        g_quad_renderer.arcball.update_drag(x, y);
-    }
-    glutPostRedisplay();
-}
-
-void keyboard_callback(unsigned char key, int, int) {
+void keyboard(unsigned char key, int, int) {
     if (key == 27 || key == 'q' || key == 'Q') {
-        destroy_scene_drawables(g_scene_renderer);
-        destroy_quad_buffers(g_quad_renderer);
         std::exit(0);
     }
+}
+
+// -----------------------------------------------------------------------------
+// Program entry
+// -----------------------------------------------------------------------------
+
+void init_common_gl_state() {
+    glEnable(GL_DEPTH_TEST);
+    glEnable(GL_CULL_FACE);
+    glCullFace(GL_BACK);
+    glClearColor(0.f, 0.f, 0.f, 1.f);
+}
+
+void setup_scene_mode() {
+    build_scene_meshes();
+    init_scene_lights();
+    create_scene_program();
+    init_common_gl_state();
+    apply_scene_viewport(g_window_width, g_window_height);
+}
+
+void setup_normal_map_mode() {
+    create_quad_program();
+    build_quad_geometry();
+    g_quad_state.color_tex = load_png_texture(g_color_path);
+    g_quad_state.normal_tex = load_png_texture(g_normal_path);
+    init_common_gl_state();
+    glViewport(0, 0, g_window_width, g_window_height);
+    g_arcball.set_viewport(0, 0, g_window_width, g_window_height);
+}
+
+std::size_t parse_size(const char* text) {
+    long value = std::strtol(text, nullptr, 10);
+    if (value <= 0) {
+        throw std::runtime_error("Resolution must be positive");
+    }
+    return static_cast<std::size_t>(value);
 }
 
 } // namespace
 
 int main(int argc, char** argv) {
-    if (argc == 5) {
-        g_program_mode = ProgramMode::Scene;
-    } else if (argc == 3) {
-        g_program_mode = ProgramMode::NormalMapped;
-    } else {
-        std::cerr << "Usage (scene): " << argv[0] << " [scene.txt] [xres] [yres] [mode]\n";
-        std::cerr << "Usage (normal map): " << argv[0] << " [color_texture.png] [normal_map.png]\n";
+    try {
+        if (argc == 5) {
+            g_mode = RunMode::Scene;
+            g_scene_path = argv[1];
+            std::ifstream fin(g_scene_path);
+            if (!fin) {
+                std::cerr << "Could not open scene file: " << g_scene_path << "\n";
+                return 1;
+            }
+            g_scene_state.scene = parse_scene_file(fin, parse_parent_path(g_scene_path));
+            g_window_width = static_cast<int>(parse_size(argv[2]));
+            g_window_height = static_cast<int>(parse_size(argv[3]));
+            g_shading_mode = std::atoi(argv[4]) == 0 ? 0 : 1;
+            g_arcball.set_window(g_window_width, g_window_height);
+        } else if (argc == 3) {
+            g_mode = RunMode::NormalMap;
+            g_color_path = argv[1];
+            g_normal_path = argv[2];
+            g_window_width = 800;
+            g_window_height = 600;
+            g_arcball.set_window(g_window_width, g_window_height);
+        } else {
+            std::cerr << "Usage: " << argv[0] << " [scene.txt] [xres] [yres] [mode]\n"
+                      << "   or: " << argv[0] << " [color.png] [normal.png]\n";
+            return 1;
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "Error: " << e.what() << "\n";
         return 1;
+    }
+
+    if (const char* override_dir = std::getenv("HW4_SHADER_DIR")) {
+        if (*override_dir != '\0') {
+            g_shader_dir = override_dir;
+        }
     }
 
     glutInit(&argc, argv);
     glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH);
-
-    if (g_program_mode == ProgramMode::Scene) {
-        const std::size_t xres = parse_size_t(argv[2]);
-        const std::size_t yres = parse_size_t(argv[3]);
-        int mode = 0;
-        try {
-            mode = std::stoi(argv[4]);
-        } catch (const std::exception&) {
-            std::cerr << "Mode must be an integer (0 for Gouraud, 1 for Phong)\n";
-            return 1;
-        }
-        if (mode != 0 && mode != 1) {
-            std::cerr << "Mode must be 0 (Gouraud) or 1 (Phong)\n";
-            return 1;
-        }
-
-        std::ifstream fin(argv[1]);
-        if (!fin) {
-            std::cerr << "Could not open scene file: " << argv[1] << "\n";
-            return 1;
-        }
-
-        try {
-            g_scene_renderer.scene = parse_scene_file(fin, parse_parent_path(argv[1]));
-        } catch (const std::exception& e) {
-            std::cerr << "Failed to parse scene: " << e.what() << "\n";
-            return 1;
-        }
-
-        g_scene_renderer.shading_mode = mode;
-        g_scene_renderer.window_width = static_cast<int>(xres);
-        g_scene_renderer.window_height = static_cast<int>(yres);
-        g_scene_renderer.arcball.set_window(g_scene_renderer.window_width, g_scene_renderer.window_height);
-
-        glutInitWindowSize(g_scene_renderer.window_width, g_scene_renderer.window_height);
-        glutInitWindowPosition(0, 0);
-        glutCreateWindow("OpenGL Scene Renderer");
-    } else {
-        g_color_texture_path = argv[1];
-        g_normal_texture_path = argv[2];
-
-        g_quad_renderer.window_width = 800;
-        g_quad_renderer.window_height = 800;
-        g_quad_renderer.arcball.set_window(g_quad_renderer.window_width, g_quad_renderer.window_height);
-
-        glutInitWindowSize(g_quad_renderer.window_width, g_quad_renderer.window_height);
-        glutInitWindowPosition(0, 0);
-        glutCreateWindow("Normal Mapped Quad");
-    }
+    glutInitWindowSize(g_window_width, g_window_height);
+    glutCreateWindow("HW4 Renderer");
 
     GLenum err = glewInit();
     if (err != GLEW_OK) {
@@ -932,24 +624,17 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    try {
-        if (g_program_mode == ProgramMode::Scene) {
-            init_scene_renderer(g_scene_renderer);
-            apply_letterboxed_viewport(g_scene_renderer, g_scene_renderer.window_width, g_scene_renderer.window_height);
-        } else {
-            init_quad_renderer(g_quad_renderer);
-            reshape_callback(g_quad_renderer.window_width, g_quad_renderer.window_height);
-        }
-    } catch (const std::exception& e) {
-        std::cerr << "Initialization error: " << e.what() << "\n";
-        return 1;
+    if (g_mode == RunMode::Scene) {
+        setup_scene_mode();
+    } else {
+        setup_normal_map_mode();
     }
 
-    glutDisplayFunc(display_callback);
-    glutReshapeFunc(reshape_callback);
-    glutMouseFunc(mouse_callback);
-    glutMotionFunc(motion_callback);
-    glutKeyboardFunc(keyboard_callback);
+    glutDisplayFunc(display);
+    glutReshapeFunc(reshape);
+    glutMouseFunc(mouse);
+    glutMotionFunc(motion);
+    glutKeyboardFunc(keyboard);
 
     glutMainLoop();
     return 0;

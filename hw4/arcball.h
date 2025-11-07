@@ -4,8 +4,8 @@
 #include "quaternion.h"
 
 #include <algorithm>
-#include <array>
 #include <cmath>
+#include <Eigen/Core>
 
 class Arcball {
 public:
@@ -29,7 +29,7 @@ public:
 
     void update_drag(int x, int y) {
         if (!dragging_) return;
-        auto current_vec = map_to_sphere(x, y);
+        Eigen::Vector3d current_vec = map_to_sphere(x, y);
         Quaternion delta = Quaternion::from_unit_vectors(start_vec_, current_vec);
         current_rotation_ = delta * base_rotation_;
     }
@@ -41,9 +41,9 @@ public:
     Quaternion rotation() const { return current_rotation_; }
 
 private:
-    std::array<double,3> map_to_sphere(int x, int y) const {
+    Eigen::Vector3d map_to_sphere(int x, int y) const {
         if (viewport_width_ <= 0 || viewport_height_ <= 0) {
-            return {0.0, 0.0, 1.0};
+            return Eigen::Vector3d(0.0, 0.0, 1.0);
         }
 
         // Translate the mouse position into viewport space and normalize to [-1, 1]
@@ -62,7 +62,7 @@ private:
         } else {
             nz = std::sqrt(1.0 - length);
         }
-        return {nx, ny, nz};
+        return Eigen::Vector3d(nx, ny, nz);
     }
 
     int window_width_{1};
@@ -72,7 +72,7 @@ private:
     int viewport_width_{1};
     int viewport_height_{1};
     bool dragging_{false};
-    std::array<double,3> start_vec_{0.0, 0.0, 1.0};
+    Eigen::Vector3d start_vec_{0.0, 0.0, 1.0};
     Quaternion base_rotation_ = Quaternion::identity();
     Quaternion current_rotation_ = Quaternion::identity();
 };

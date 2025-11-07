@@ -1,6 +1,7 @@
 #ifndef HW3_QUATERNION_H
 #define HW3_QUATERNION_H
 
+#include <Eigen/Core>
 #include <array>
 #include <cmath>
 
@@ -24,25 +25,21 @@ struct Quaternion {
     } 
 
     // Finds the shortest arc-rotation between two unit vectors
-    static Quaternion from_unit_vectors(const std::array<double,3>& from,
-                                        const std::array<double,3>& to) {
-        double dot = from[0]*to[0] + from[1]*to[1] + from[2]*to[2];
-        std::array<double,3> cross{
-            from[1]*to[2] - from[2]*to[1],
-            from[2]*to[0] - from[0]*to[2],
-            from[0]*to[1] - from[1]*to[0]
-        };
+    static Quaternion from_unit_vectors(const Eigen::Vector3d& from,
+                                        const Eigen::Vector3d& to) {
+        double dot = from.dot(to);
+        Eigen::Vector3d cross = from.cross(to);
         // Theorem: [1 + a dot b, a cross b] is proportional to [cos(theta/2), u sin(theta/2)]
         // Where theta is the angle between the two vectors and u is the axis
-        Quaternion q(dot + 1.0, cross[0], cross[1], cross[2]);
+        Quaternion q(dot + 1.0, cross.x(), cross.y(), cross.z());
         if (q.length_squared() < 1e-12) {
             // Vectors are nearly opposite, so choose arbitrary orthogonal axis
-            std::array<double,3> ortho;
-            if (std::abs(from[0]) > std::abs(from[1]))
-                ortho = { -from[2], 0.0, from[0] };
+            Eigen::Vector3d ortho;
+            if (std::abs(from.x()) > std::abs(from.y()))
+                ortho = Eigen::Vector3d(-from.z(), 0.0, from.x());
             else
-                ortho = { 0.0, -from[2], from[1] };
-            return Quaternion(0.0, ortho[0], ortho[1], ortho[2]).normalized();
+                ortho = Eigen::Vector3d(0.0, -from.z(), from.y());
+            return Quaternion(0.0, ortho.x(), ortho.y(), ortho.z()).normalized();
         }
         // Since our quaternion is proportional, we normalize to get a unique representation
         return q.normalized();
