@@ -2,7 +2,6 @@
 #define HW3_QUATERNION_H
 
 #include <Eigen/Core>
-#include <array>
 #include <cmath>
 
 struct Quaternion {
@@ -67,7 +66,7 @@ struct Quaternion {
     }
 
     // Directly from hw3 lecture notes
-    std::array<double,16> to_matrix() const {
+    Eigen::Matrix4d to_matrix() const {
         Quaternion n = normalized();
         double xx = n.x * n.x;
         double yy = n.y * n.y;
@@ -86,32 +85,20 @@ struct Quaternion {
         //     0.0,                 0.0,                 0.0,                 1.0
         // };
 
-        // Return must be column major!
-        return {
-            // column 0
-            1.0 - 2.0*(yy + zz),
-            2.0*(xy + wz),
-            2.0*(xz - wy),
-            0.0,
+        Eigen::Matrix4d result = Eigen::Matrix4d::Identity();
+        result(0,0) = 1.0 - 2.0*(yy + zz);
+        result(0,1) = 2.0*(xy - wz);
+        result(0,2) = 2.0*(xz + wy);
 
-            // column 1
-            2.0*(xy - wz),
-            1.0 - 2.0*(xx + zz),
-            2.0*(yz + wx),
-            0.0,
+        result(1,0) = 2.0*(xy + wz);
+        result(1,1) = 1.0 - 2.0*(xx + zz);
+        result(1,2) = 2.0*(yz - wx);
 
-            // column 2
-            2.0*(xz + wy),
-            2.0*(yz - wx),
-            1.0 - 2.0*(xx + yy),
-            0.0,
+        result(2,0) = 2.0*(xz - wy);
+        result(2,1) = 2.0*(yz + wx);
+        result(2,2) = 1.0 - 2.0*(xx + yy);
 
-            // column 3
-            0.0, 
-            0.0, 
-            0.0, 
-            1.0
-        };
+        return result;
     }
 };
 
