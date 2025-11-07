@@ -16,7 +16,6 @@
 #include <Eigen/Geometry>
 
 #include <algorithm>
-#include <array>
 #include <cmath>
 #include <cstdlib>
 #include <fstream>
@@ -179,8 +178,7 @@ GLuint link_program(GLuint vs, GLuint fs, const std::vector<std::pair<GLuint, co
     return program;
 }
 
-Eigen::Matrix4f to_matrix4f(const std::array<double, 16>& data) {
-    Eigen::Matrix4d mat_d = Eigen::Map<const Eigen::Matrix<double, 4, 4, Eigen::ColMajor>>(data.data());
+Eigen::Matrix4f to_matrix4f(const Eigen::Matrix4d& mat_d) {
     return mat_d.cast<float>();
 }
 
@@ -374,7 +372,7 @@ void build_quad_geometry() {
 // -----------------------------------------------------------------------------
 
 Eigen::Matrix4f compute_scene_model_view() {
-    const auto arcball_data = g_arcball.rotation().to_matrix();
+    const Eigen::Matrix4d arcball_data = g_arcball.rotation().to_matrix();
     Eigen::Matrix4f arcball = to_matrix4f(arcball_data);
     Eigen::Matrix4f camera = Eigen::Map<const Eigen::Matrix<double, 4, 4, Eigen::ColMajor>>(g_scene_state.scene.cam_transforms.Cinv.data()).cast<float>();
     return camera * arcball;
@@ -394,9 +392,9 @@ void upload_scene_globals(const Eigen::Matrix4f& model_view, const Eigen::Matrix
     GLint light_count = static_cast<GLint>(std::min<std::size_t>(g_scene_state.lights.size(), kMaxLights));
     glUniform1i(g_scene_uniforms.light_count, light_count);
 
-    std::array<GLfloat, kMaxLights * 3> positions{};
-    std::array<GLfloat, kMaxLights * 3> colors{};
-    std::array<GLfloat, kMaxLights> atten{};
+    std::vector<GLfloat> positions(kMaxLights * 3, 0.0f);
+    std::vector<GLfloat> colors(kMaxLights * 3, 0.0f);
+    std::vector<GLfloat> atten(kMaxLights, 0.0f);
 
     for (GLint i = 0; i < light_count; ++i) {
         positions[i * 3 + 0] = g_scene_state.lights[i].position.x();
@@ -435,7 +433,7 @@ void render_scene_mode() {
 void render_normal_map_mode() {
     glUseProgram(g_quad_program);
 
-    const auto arcball_data = g_arcball.rotation().to_matrix();
+    const Eigen::Matrix4d arcball_data = g_arcball.rotation().to_matrix();
     Eigen::Matrix4f model = to_matrix4f(arcball_data);
     Eigen::Matrix4f view = make_translation(0.0f, 0.0f, -3.0f);
     Eigen::Matrix4f model_view = view * model;
