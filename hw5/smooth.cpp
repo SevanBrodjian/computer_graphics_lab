@@ -255,13 +255,13 @@ void build_drawables() {
         drawable.shininess = src.shininess;
 
         for (const auto& face : src.mesh.obj.faces) {
-            const Vertex& v1 = src.mesh.obj.vertices.at(face.v1);
-            const Vertex& v2 = src.mesh.obj.vertices.at(face.v2);
-            const Vertex& v3 = src.mesh.obj.vertices.at(face.v3);
+            const Vertex& v1 = src.mesh.obj.vertices.at(face.idx1);
+            const Vertex& v2 = src.mesh.obj.vertices.at(face.idx2);
+            const Vertex& v3 = src.mesh.obj.vertices.at(face.idx3);
 
-            const Vec3f& n1 = src.mesh.vertex_normals.at(face.v1);
-            const Vec3f& n2 = src.mesh.vertex_normals.at(face.v2);
-            const Vec3f& n3 = src.mesh.vertex_normals.at(face.v3);
+            const Vec3f& n1 = src.mesh.vertex_normals.at(face.idx1);
+            const Vec3f& n2 = src.mesh.vertex_normals.at(face.idx2);
+            const Vec3f& n3 = src.mesh.vertex_normals.at(face.idx3);
 
             const std::array<const Vertex*, 3> verts{&v1, &v2, &v3};
             const std::array<const Vec3f*, 3> norms{&n1, &n2, &n3};

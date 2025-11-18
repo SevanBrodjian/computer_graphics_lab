@@ -53,9 +53,9 @@ void apply_transform_to_object(Object& src, const Matrix4d& M) {
         auto& v = src.vertices[vi];
         Eigen::Vector4d p(v.x, v.y, v.z, 1.0);
         Eigen::Vector3d q = (M * p).hnormalized();
-        v.x = q[0];
-        v.y = q[1];
-        v.z = q[2];
+        v.x = static_cast<float>(q[0]);
+        v.y = static_cast<float>(q[1]);
+        v.z = static_cast<float>(q[2]);
     }
 }
 
@@ -121,7 +121,7 @@ std::vector<Object> load_objects(const std::vector<std::string>& fpaths,
             throw std::runtime_error("Error: Could not open file " + file_path);
         }
 
-        std::vector<Vertex> vertices{{0.0, 0.0, 0.0}};
+        std::vector<Vertex> vertices{{0.0f, 0.0f, 0.0f}};
         std::vector<Face> faces;
         std::string line;
 
@@ -139,9 +139,9 @@ std::vector<Object> load_objects(const std::vector<std::string>& fpaths,
                 if (!(line_stream >> x >> y >> z)) {
                     throw std::runtime_error("Invalid vertex format");
                 }
-                vertices.push_back({x, y, z});
+                vertices.push_back({static_cast<float>(x), static_cast<float>(y), static_cast<float>(z)});
             } else if (type == "f") {
-                unsigned int v_idx[3];
+                int v_idx[3];
                 for (int i = 0; i < 3; ++i) {
                     if (!(line_stream >> v_idx[i])) {
                         throw std::runtime_error("Invalid face format");

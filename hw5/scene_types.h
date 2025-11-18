@@ -1,19 +1,11 @@
 #ifndef HW3_SCENE_TYPES_H
 #define HW3_SCENE_TYPES_H
 
+#include "structs.h"
+
 #include <Eigen/Dense>
 #include <string>
 #include <vector>
-
-// Reused from hw2/hw3 but simplified for meshes without normals
-
-struct Vertex {
-    double x, y, z;
-};
-
-struct Face {
-    unsigned int v1, v2, v3;
-};
 
 struct Object {
     std::string filename;
