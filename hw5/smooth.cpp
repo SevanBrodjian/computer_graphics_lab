@@ -14,6 +14,7 @@
 
 #include <Eigen/Dense>
 #include <Eigen/Sparse>
+#include <Eigen/SparseLU>
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -222,8 +223,9 @@ void apply_implicit_fairing(RenderObject& obj, double h) {
         z0[idx] = v->z;
     }
 
-    Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>> solver;
-    solver.compute(F);
+    Eigen::SparseLU<Eigen::SparseMatrix<double>> solver;
+    solver.analyzePattern(F);
+    solver.factorize(F);
     if (solver.info() != Eigen::Success) {
         throw std::runtime_error("Failed to factorize fairing matrix");
     }
