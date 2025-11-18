@@ -1,0 +1,23 @@
+camera:
+position 0 0 4
+orientation 1 1 0 0.4
+near 1
+far 10
+left -0.5
+right 0.5
+top 0.5
+bottom -0.5
+
+light -2 2 2 , 0.7 0.9 0 , 0
+
+objects:
+armadillo armadillo.obj
+
+armadillo
+ambient 0.4 0.4 0.4
+diffuse 0.6 0.6 0.6
+specular 0.2 0.2 0.2
+shininess 1
+s 1 1 1
+r 0 1 0 3.14
+t -1.2 0.6 0

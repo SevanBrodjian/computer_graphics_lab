@@ -8,13 +8,14 @@
 #include <vector>
 
 namespace {
-struct PngReadGuard {
+struct PngRead {
     png_structp png_ptr{nullptr};
     png_infop info_ptr{nullptr};
     png_infop end_info{nullptr};
     FILE* file{nullptr};
 
-    ~PngReadGuard() {
+    // Safely destroy all the png info we are using
+    ~PngRead() {
         if (png_ptr || info_ptr || end_info) {
             png_destroy_read_struct(png_ptr ? &png_ptr : nullptr,
                                     info_ptr ? &info_ptr : nullptr,
@@ -28,12 +29,13 @@ struct PngReadGuard {
 }
 
 GLuint load_png_texture(const std::string& filename) {
-    PngReadGuard guard;
+    PngRead guard;
     guard.file = std::fopen(filename.c_str(), "rb");
     if (!guard.file) {
-        throw std::runtime_error("Failed to open PNG file: " + filename);
+        throw std::runtime_error("Failed to open file: " + filename);
     }
 
+    // Check if this is even a png by header
     png_byte header[8];
     if (std::fread(header, 1, sizeof(header), guard.file) != sizeof(header)) {
         throw std::runtime_error("Failed to read PNG header: " + filename);
@@ -47,12 +49,15 @@ GLuint load_png_texture(const std::string& filename) {
         throw std::runtime_error("png_create_read_struct failed for: " + filename);
     }
 
+    // Will hold img metadata
     guard.info_ptr = png_create_info_struct(guard.png_ptr);
+    // Will hold other info
     guard.end_info = png_create_info_struct(guard.png_ptr);
     if (!guard.info_ptr || !guard.end_info) {
         throw std::runtime_error("png_create_info_struct failed for: " + filename);
     }
 
+    // If png throws an error it will jump back here
     if (setjmp(png_jmpbuf(guard.png_ptr))) {
         throw std::runtime_error("libpng error while reading: " + filename);
     }
@@ -99,7 +104,7 @@ GLuint load_png_texture(const std::string& filename) {
     png_read_image(guard.png_ptr, row_pointers.data());
     png_read_end(guard.png_ptr, guard.end_info);
 
-    // Flip the image vertically so textures appear right-side up
+    // Flip the image vertically so textures appear right side up
     std::vector<png_byte> flipped(rowbytes * height);
     for (png_uint_32 y = 0; y < height; ++y) {
         std::memcpy(flipped.data() + (height - 1 - y) * rowbytes,

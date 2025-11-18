@@ -122,9 +122,9 @@ std::string g_normal_path;
 
 } // namespace
 
-// -----------------------------------------------------------------------------
-// Utility helpers
-// -----------------------------------------------------------------------------
+// ####################
+//  Utility helpers
+// #####################
 
 std::string load_text_file(const std::string& path) {
     std::ifstream file(path.c_str(), std::ios::in | std::ios::binary);
@@ -137,6 +137,7 @@ std::string load_text_file(const std::string& path) {
 }
 
 GLuint compile_shader(GLenum type, const std::string& path) {
+    // Type specifies vertex vs fragment shader
     const std::string source = load_text_file(path);
     const char* source_ptr = source.c_str();
 
@@ -146,6 +147,7 @@ GLuint compile_shader(GLenum type, const std::string& path) {
 
     GLint ok = GL_FALSE;
     glGetShaderiv(shader, GL_COMPILE_STATUS, &ok);
+    // If compiling failed, grab and print the log
     if (ok != GL_TRUE) {
         GLint log_len = 0;
         glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &log_len);
@@ -159,6 +161,7 @@ GLuint compile_shader(GLenum type, const std::string& path) {
 }
 
 GLuint link_program(GLuint vs, GLuint fs, const std::vector<std::pair<GLuint, const char*>>& attribs) {
+    // attrib is a vector of pairs of assigned integers and names
     GLuint program = glCreateProgram();
     glAttachShader(program, vs);
     glAttachShader(program, fs);
@@ -166,6 +169,7 @@ GLuint link_program(GLuint vs, GLuint fs, const std::vector<std::pair<GLuint, co
         glBindAttribLocation(program, attr.first, attr.second);
     }
     glLinkProgram(program);
+
     GLint ok = GL_FALSE;
     glGetProgramiv(program, GL_LINK_STATUS, &ok);
     if (ok != GL_TRUE) {
@@ -183,14 +187,24 @@ Eigen::Matrix4f to_matrix4f(const Eigen::Matrix4d& mat_d) {
 }
 
 Eigen::Matrix4f make_perspective(float fov_y_degrees, float aspect, float znear, float zfar) {
-    float f = 1.0f / std::tan(fov_y_degrees * 0.5f * static_cast<float>(M_PI) / 180.0f);
-    Eigen::Matrix4f result = Eigen::Matrix4f::Zero();
-    result(0,0) = f / aspect;
-    result(1,1) = f;
-    result(2,2) = (zfar + znear) / (znear - zfar);
-    result(2,3) = -1.0f;
-    result(3,2) = (2.0f * zfar * znear) / (znear - zfar);
-    return result;
+    // Derive parameters needed to make perspective
+    const double n = static_cast<double>(znear);
+    const double f = static_cast<double>(zfar);
+    const double fovy_rad = static_cast<double>(fov_y_degrees) * M_PI / 180.0;
+    const double t = n * std::tan(fovy_rad * 0.5);
+    const double b = -t;
+    const double r = t * static_cast<double>(aspect);
+    const double l = -r;
+
+    // Same as hw2 implementation
+    Eigen::Matrix4d Pd;
+    Pd <<
+        (2.0 * n) / (r - l),  0.0,                 (r + l) / (r - l),   0.0,
+        0.0,                  (2.0 * n) / (t - b), (t + b) / (t - b),   0.0,
+        0.0,                  0.0,                 -(f + n) / (f - n),  -(2.0 * f * n) / (f - n),
+        0.0,                  0.0,                 -1.0,                0.0;
+
+    return Pd.cast<float>();
 }
 
 Eigen::Matrix4f make_translation(float x, float y, float z) {
@@ -201,16 +215,16 @@ Eigen::Matrix4f make_translation(float x, float y, float z) {
     return mat;
 }
 
-// -----------------------------------------------------------------------------
-// Scene mode setup
-// -----------------------------------------------------------------------------
+// #####################
+//  Scene mode setup
+// #####################
 
 void build_scene_meshes() {
     g_scene_state.meshes.clear();
     g_scene_state.meshes.reserve(g_scene_state.scene.scene_objects.size());
 
     for (const auto& inst : g_scene_state.scene.scene_objects) {
-        std::vector<float> interleaved;
+        std::vector<float> interleaved; // interleaved vectors and normals
         interleaved.reserve(inst.obj.faces.size() * 3 * 6);
 
         for (const auto& face : inst.obj.faces) {
@@ -240,19 +254,23 @@ void build_scene_meshes() {
         mesh.specular = inst.specular.cast<float>();
         mesh.shininess = static_cast<float>(std::max(0.0, std::min(inst.shininess, 200.0)));
 
+        // Generate a vao location for this mesh
         glGenVertexArrays(1, &mesh.vao);
         glBindVertexArray(mesh.vao);
 
+        // Store the mesh in a vbo
         glGenBuffers(1, &mesh.vbo);
         glBindBuffer(GL_ARRAY_BUFFER, mesh.vbo);
         glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(interleaved.size() * sizeof(float)),
                      interleaved.data(), GL_STATIC_DRAW);
 
+        // Tell information needed to interpret our vbo
         glEnableVertexAttribArray(0);
         glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), reinterpret_cast<void*>(0));
         glEnableVertexAttribArray(1);
         glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), reinterpret_cast<void*>(3 * sizeof(float)));
 
+        // Reset so we don't accidentally overwrite
         glBindVertexArray(0);
         glBindBuffer(GL_ARRAY_BUFFER, 0);
 
@@ -296,9 +314,9 @@ void create_scene_program() {
     g_scene_uniforms.shading_mode = glGetUniformLocation(g_scene_program, "uShadingMode");
 }
 
-// -----------------------------------------------------------------------------
-// Normal map mode setup
-// -----------------------------------------------------------------------------
+// #####################
+//  PNG Mode Setup
+// #####################
 
 void create_quad_program() {
     const std::string vertex_path = g_shader_dir + "/quad.vert";
@@ -331,13 +349,16 @@ void build_quad_geometry() {
         float u, v;
     };
 
+    // Manually specify our rectangle
+    // Ordering is px py pz,    nx ny nz,   tx ty tz,   bx by bz,   u v
     const VertexData vertices[] = {
-        { -1.0f, -1.0f, 0.0f, 0.f, 0.f, 1.f, 1.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f },
-        {  1.0f, -1.0f, 0.0f, 0.f, 0.f, 1.f, 1.f, 0.f, 0.f, 0.f, 1.f, 1.f, 0.f },
-        {  1.0f,  1.0f, 0.0f, 0.f, 0.f, 1.f, 1.f, 0.f, 0.f, 0.f, 1.f, 1.f, 1.f },
-        { -1.0f,  1.0f, 0.0f, 0.f, 0.f, 1.f, 1.f, 0.f, 0.f, 0.f, 1.f, 0.f, 1.f },
+        { -1.f, -1.f, 0.f,  0.f,0.f,1.f,    1.f,0.f,0.f,    0.f,1.f,0.f,    0.f,0.f },
+        {  1.f, -1.f, 0.f,  0.f,0.f,1.f,    1.f,0.f,0.f,    0.f,1.f,0.f,    1.f,0.f },
+        {  1.f, 1.f, 0.f,   0.f,0.f,1.f,    1.f,0.f,0.f,    0.f,1.f,0.f,    1.f,1.f },
+        { -1.f, 1.f, 0.f,   0.f,0.f,1.f,    1.f,0.f,0.f,    0.f,1.f,0.f,    0.f,1.f },
     };
 
+    // Draw two triangles
     const unsigned int indices[] = {0, 1, 2, 0, 2, 3};
 
     glGenVertexArrays(1, &g_quad_state.vao);
@@ -367,63 +388,89 @@ void build_quad_geometry() {
     g_quad_state.index_count = 6;
 }
 
-// -----------------------------------------------------------------------------
-// Rendering helpers
-// -----------------------------------------------------------------------------
+// #####################
+//  Rendering Helpers
+// #####################
 
 Eigen::Matrix4f compute_scene_model_view() {
     const Eigen::Matrix4d arcball_data = g_arcball.rotation().to_matrix();
     Eigen::Matrix4f arcball = to_matrix4f(arcball_data);
-    Eigen::Matrix4f camera = Eigen::Map<const Eigen::Matrix<double, 4, 4, Eigen::ColMajor>>(g_scene_state.scene.cam_transforms.Cinv.data()).cast<float>();
+    // raw pointer to the Cinv doubles
+    const double* raw = g_scene_state.scene.cam_transforms.Cinv.data();
+    // view that memory as a 4x4 double matrix (column major)
+    Eigen::Map<const Eigen::Matrix<double,4,4,Eigen::ColMajor>> Cinv_map(raw);
+    // cast to float
+    Eigen::Matrix4f camera = Cinv_map.cast<float>();
     return camera * arcball;
 }
 
 Eigen::Matrix4f compute_scene_projection() {
-    return Eigen::Map<const Eigen::Matrix<double, 4, 4, Eigen::ColMajor>>(g_scene_state.scene.cam_transforms.P.data()).cast<float>();
+    // raw pointer to the doubles
+    const double* raw = g_scene_state.scene.cam_transforms.P.data();
+    // reinterpret that memory as a 4×4 double matrix
+    Eigen::Map<const Eigen::Matrix<double,4,4,Eigen::ColMajor>> P_map(raw);
+    // convert to float and return
+    return P_map.cast<float>();
 }
 
 void upload_scene_globals(const Eigen::Matrix4f& model_view, const Eigen::Matrix4f& projection) {
+    // Upload camera, lighting, etc once per frame
+    // Transform for normals: (MV_3x3)^{-T}
     Eigen::Matrix3f normal_matrix = model_view.block<3,3>(0,0).inverse().transpose();
+
+    // Camera transforms
     glUniformMatrix4fv(g_scene_uniforms.model_view, 1, GL_FALSE, model_view.data());
     glUniformMatrix4fv(g_scene_uniforms.projection, 1, GL_FALSE, projection.data());
     glUniformMatrix3fv(g_scene_uniforms.normal_matrix, 1, GL_FALSE, normal_matrix.data());
+
+    // Ambient light (scene constant)
     glUniform3fv(g_scene_uniforms.ambient_light, 1, g_ambient_light.data());
 
+    // Pack light array (clamped to kMaxLights)
     GLint light_count = static_cast<GLint>(std::min<std::size_t>(g_scene_state.lights.size(), kMaxLights));
     glUniform1i(g_scene_uniforms.light_count, light_count);
 
     std::vector<GLfloat> positions(kMaxLights * 3, 0.0f);
     std::vector<GLfloat> colors(kMaxLights * 3, 0.0f);
-    std::vector<GLfloat> atten(kMaxLights, 0.0f);
+    std::vector<GLfloat> atten(kMaxLights,0.0f);
 
     for (GLint i = 0; i < light_count; ++i) {
         positions[i * 3 + 0] = g_scene_state.lights[i].position.x();
         positions[i * 3 + 1] = g_scene_state.lights[i].position.y();
         positions[i * 3 + 2] = g_scene_state.lights[i].position.z();
+
         colors[i * 3 + 0] = g_scene_state.lights[i].color.x();
         colors[i * 3 + 1] = g_scene_state.lights[i].color.y();
         colors[i * 3 + 2] = g_scene_state.lights[i].color.z();
+
         atten[i] = g_scene_state.lights[i].attenuation;
     }
 
+    // Upload light arrays (shader expects arrays of vec3 and float)
     glUniform3fv(g_scene_uniforms.light_positions, light_count, positions.data());
     glUniform3fv(g_scene_uniforms.light_colors, light_count, colors.data());
     glUniform1fv(g_scene_uniforms.light_atten, light_count, atten.data());
+
+    // Shading mode toggle
     glUniform1i(g_scene_uniforms.shading_mode, g_shading_mode);
 }
 
 void render_scene_mode() {
+    // Each frame: set globals. Per-mesh: set material, bind VAO, draw.
     glUseProgram(g_scene_program);
+
     Eigen::Matrix4f model_view = compute_scene_model_view();
     Eigen::Matrix4f projection = compute_scene_projection();
     upload_scene_globals(model_view, projection);
 
     for (const auto& mesh : g_scene_state.meshes) {
+        // Per-object material parameters
         glUniform3fv(g_scene_uniforms.material_ambient, 1, mesh.ambient.data());
         glUniform3fv(g_scene_uniforms.material_diffuse, 1, mesh.diffuse.data());
         glUniform3fv(g_scene_uniforms.material_specular, 1, mesh.specular.data());
-        glUniform1f(g_scene_uniforms.material_shininess, mesh.shininess);
+        glUniform1f (g_scene_uniforms.material_shininess, mesh.shininess);
 
+        // Draw
         glBindVertexArray(mesh.vao);
         glDrawArrays(GL_TRIANGLES, 0, mesh.vertex_count);
     }
@@ -431,26 +478,35 @@ void render_scene_mode() {
 }
 
 void render_normal_map_mode() {
+    // Render a PNG with a normal map
     glUseProgram(g_quad_program);
 
+    // Model-view from arcball rotation and a simple camera translate moving back
     const Eigen::Matrix4d arcball_data = g_arcball.rotation().to_matrix();
     Eigen::Matrix4f model = to_matrix4f(arcball_data);
-    Eigen::Matrix4f view = make_translation(0.0f, 0.0f, -3.0f);
+    Eigen::Matrix4f view  = make_translation(0.0f, 0.0f, -3.0f);
     Eigen::Matrix4f model_view = view * model;
+
+    // Perspective from window aspect
     float aspect = std::max(1, g_window_width) / static_cast<float>(std::max(1, g_window_height));
     Eigen::Matrix4f projection = make_perspective(45.0f, aspect, 0.1f, 20.0f);
+
+    // Normal matrix for this model view
     Eigen::Matrix3f normal_matrix = model_view.block<3,3>(0,0).inverse().transpose();
 
+    // Upload transforms
     glUniformMatrix4fv(g_quad_uniforms.model_view, 1, GL_FALSE, model_view.data());
     glUniformMatrix4fv(g_quad_uniforms.projection, 1, GL_FALSE, projection.data());
-    glUniformMatrix3fv(g_quad_uniforms.normal_matrix, 1, GL_FALSE, normal_matrix.data());
+    glUniformMatrix3fv(g_quad_uniforms.normal_matrix,1, GL_FALSE, normal_matrix.data());
 
-    glUniform3f(g_quad_uniforms.light_position, 0.0f, 0.0f, 3.0f);
-    glUniform3f(g_quad_uniforms.light_color, 1.0f, 1.0f, 1.0f);
+    // Simple lighting & material constants for the quad shader
+    glUniform3f (g_quad_uniforms.light_position, 0.0f, 0.0f, 3.0f);
+    glUniform3f (g_quad_uniforms.light_color, 1.0f, 1.0f, 1.0f);
     glUniform3fv(g_quad_uniforms.ambient_light, 1, g_ambient_light.data());
-    glUniform3f(g_quad_uniforms.specular, 0.4f, 0.4f, 0.4f);
-    glUniform1f(g_quad_uniforms.shininess, 32.0f);
+    glUniform3f (g_quad_uniforms.specular, 0.4f, 0.4f, 0.4f);
+    glUniform1f (g_quad_uniforms.shininess, 32.0f);
 
+    // Bind textures: color to unit 0, normal map to unit 1
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, g_quad_state.color_tex);
     glUniform1i(g_quad_uniforms.color_texture, 0);
@@ -459,14 +515,15 @@ void render_normal_map_mode() {
     glBindTexture(GL_TEXTURE_2D, g_quad_state.normal_tex);
     glUniform1i(g_quad_uniforms.normal_texture, 1);
 
+    // Draw the indexed quad
     glBindVertexArray(g_quad_state.vao);
     glDrawElements(GL_TRIANGLES, g_quad_state.index_count, GL_UNSIGNED_INT, nullptr);
     glBindVertexArray(0);
 }
 
-// -----------------------------------------------------------------------------
-// GLUT callbacks
-// -----------------------------------------------------------------------------
+// #####################
+//  GLUT Helpers
+// #####################
 
 void display() {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -483,15 +540,21 @@ double camera_aspect() {
     return P(1,1) / P(0,0);
 }
 
+// I found this code, but it helps to make my renderings look
+// properly proportioned on the screen at any window size.
+// It essentially calculates if it needs to pad the window at all in order
+// to match the rendering to the necessary aspect ratio, instead of warping things
 void apply_scene_viewport(int width, int height) {
     double target = camera_aspect();
     double win_aspect = static_cast<double>(width) / static_cast<double>(height);
 
     int vx = 0, vy = 0, vw = width, vh = height;
     if (win_aspect > target) {
+        // window is wider -> pillarbox left/right
         vw = static_cast<int>(std::round(vh * target));
         vx = (width - vw) / 2;
     } else if (win_aspect < target) {
+        // window is taller -> letterbox top/bottom
         vh = static_cast<int>(std::round(vw / target));
         vy = (height - vh) / 2;
     }
@@ -505,6 +568,7 @@ void reshape(int width, int height) {
     if (g_mode == RunMode::Scene) {
         apply_scene_viewport(g_window_width, g_window_height);
     } else {
+        // No special aspect ratio considerations needed
         glViewport(0, 0, g_window_width, g_window_height);
         g_arcball.set_viewport(0, 0, g_window_width, g_window_height);
     }
@@ -534,15 +598,14 @@ void keyboard(unsigned char key, int, int) {
     }
 }
 
-// -----------------------------------------------------------------------------
-// Program entry
-// -----------------------------------------------------------------------------
+// #####################
+//  Main Program
+// #####################
 
 void init_common_gl_state() {
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_CULL_FACE);
-    glCullFace(GL_BACK);
-    glClearColor(0.f, 0.f, 0.f, 1.f);
+    // glEnable(GL_BACK);
 }
 
 void setup_scene_mode() {
@@ -550,15 +613,17 @@ void setup_scene_mode() {
     init_scene_lights();
     create_scene_program();
     init_common_gl_state();
+    glClearColor(0.f, 0.f, 0.f, 1.f);
     apply_scene_viewport(g_window_width, g_window_height);
 }
 
 void setup_normal_map_mode() {
-    create_quad_program();
     build_quad_geometry();
+    create_quad_program();
     g_quad_state.color_tex = load_png_texture(g_color_path);
     g_quad_state.normal_tex = load_png_texture(g_normal_path);
     init_common_gl_state();
+    glClearColor(0.2f, 0.f, 0.f, 1.f);
     glViewport(0, 0, g_window_width, g_window_height);
     g_arcball.set_viewport(0, 0, g_window_width, g_window_height);
 }
@@ -595,7 +660,7 @@ int main(int argc, char** argv) {
             g_arcball.set_window(g_window_width, g_window_height);
         } else {
             std::cerr << "Usage: " << argv[0] << " [scene.txt] [xres] [yres] [mode]\n"
-                      << "   or: " << argv[0] << " [color.png] [normal.png]\n";
+                        << " or: " << argv[0] << " [color.png] [normal.png]\n";
             return 1;
         }
     } catch (const std::exception& e) {
@@ -607,18 +672,25 @@ int main(int argc, char** argv) {
         if (*override_dir != '\0') {
             g_shader_dir = override_dir;
         }
-    }
+    } // Defaults to SHADER_DIR
 
     glutInit(&argc, argv);
     glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH);
     glutInitWindowSize(g_window_width, g_window_height);
     glutCreateWindow("HW4 Renderer");
 
+    #ifdef __APPLE__
+        // Fixes mac segfaults
+        glewExperimental = GL_TRUE;
+    #endif
+
     GLenum err = glewInit();
     if (err != GLEW_OK) {
         std::cerr << "GLEW init error: " << glewGetErrorString(err) << "\n";
         return 1;
     }
+
+    glGetError();
 
     if (g_mode == RunMode::Scene) {
         setup_scene_mode();

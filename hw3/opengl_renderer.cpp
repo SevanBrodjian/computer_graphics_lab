@@ -180,11 +180,12 @@ void display() {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     glLoadIdentity();
+    
     glMultMatrixd(g_scene.cam_transforms.Cinv.data());
-
+    
     auto arcball_matrix = g_arcball.rotation().to_matrix();
     glMultMatrixd(arcball_matrix.data());
-
+    
     set_lights();
     draw_scene();
 
@@ -216,7 +217,6 @@ void apply_letterboxed_viewport(int win_w, int win_h) {
         vy = (win_h - vh) / 2;
     }
     glViewport(vx, vy, vw, vh);
-    g_arcball.set_viewport(vx, vy, vw, vh);
 }
 
 void reshape(int width, int height) {

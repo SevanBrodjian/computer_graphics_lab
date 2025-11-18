@@ -7,6 +7,7 @@
 #include <cmath>
 #include <Eigen/Core>
 
+// Adapted from hw3
 class Arcball {
 public:
     void set_window(int width, int height) {
@@ -14,6 +15,8 @@ public:
         window_height_ = std::max(height, 1);
     }
 
+    // Use the actual viewport rather than windowsize
+    // See "apply_scene_viewport" correction in opengl_renderer.cpp
     void set_viewport(int vx, int vy, int vw, int vh) {
         viewport_x_ = vx;
         viewport_y_ = vy;

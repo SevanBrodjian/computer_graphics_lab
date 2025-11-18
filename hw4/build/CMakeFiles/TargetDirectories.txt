@@ -1,3 +1,0 @@
-/Users/sevan/experiments/computer_graphics_lab/hw4/build/CMakeFiles/opengl_renderer.dir
-/Users/sevan/experiments/computer_graphics_lab/hw4/build/CMakeFiles/edit_cache.dir
-/Users/sevan/experiments/computer_graphics_lab/hw4/build/CMakeFiles/rebuild_cache.dir
