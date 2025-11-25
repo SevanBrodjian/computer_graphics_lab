@@ -9,7 +9,7 @@
 
 struct Object {
     std::string filename;
-    // 1-indexed vertex list, vertices[0] is dummy to align with OBJ indices
+    // 1-indexed vertex list
     std::vector<Vertex> vertices;
     std::vector<Face> faces;
 };

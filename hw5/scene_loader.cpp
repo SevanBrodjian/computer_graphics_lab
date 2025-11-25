@@ -12,8 +12,9 @@ using Eigen::Matrix3d;
 using Eigen::Matrix4d;
 using Eigen::Vector3d;
 
-namespace {
+// Reused from hw3, removed normals
 
+namespace {
 std::string join_path(const std::string& parent, const std::string& filename) {
     if (parent.empty()) return filename;
     if (parent.back() == '/' || parent.back() == '\\') return parent + filename;
@@ -53,9 +54,9 @@ void apply_transform_to_object(Object& src, const Matrix4d& M) {
         auto& v = src.vertices[vi];
         Eigen::Vector4d p(v.x, v.y, v.z, 1.0);
         Eigen::Vector3d q = (M * p).hnormalized();
-        v.x = static_cast<float>(q[0]);
-        v.y = static_cast<float>(q[1]);
-        v.z = static_cast<float>(q[2]);
+        v.x = q[0];
+        v.y = q[1];
+        v.z = q[2];
     }
 }
 

@@ -30,7 +30,7 @@ struct MeshGeometry {
     std::vector<Face*> face_ptrs;
     std::vector<HEV*> hevs;
     std::vector<HEF*> hefs;
-    std::vector<Vec3f> vertex_normals; // 1-indexed to match vertex order
+    std::vector<Vec3f> vertex_normals; // 1-indexed
 };
 
 struct RenderObject {
@@ -93,6 +93,8 @@ double calc_area(const HEF* face) {
 }
 
 void compute_vertex_normals(MeshGeometry& mesh) {
+    // Calculates the normal for each vertex as the area-weighted average of 
+    // all neighboring face normals
     mesh.vertex_normals.assign(mesh.hevs.size(), Vec3f{0.0f, 0.0f, 0.0f});
 
     for (std::size_t i = 1; i < mesh.hevs.size(); ++i) {
@@ -107,7 +109,7 @@ void compute_vertex_normals(MeshGeometry& mesh) {
             Eigen::Vector3d n(face_normal.x, face_normal.y, face_normal.z);
             double area = calc_area(he->face);
             accum += area * n;
-            he = he->flip->next;
+            he = he->flip->next; // Go to next face
         } while (he != he_start);
 
         if (accum.norm() > 0.0) {
@@ -121,17 +123,19 @@ void compute_vertex_normals(MeshGeometry& mesh) {
 double calc_cotangent(const HE* edge) {
     const HEV* v0 = edge->vertex;
     const HEV* v1 = edge->next->vertex;
-    const HEV* v2 = edge->next->next->vertex; // vertex opposite the edge
+    const HEV* v2 = edge->next->next->vertex; // vertex opposite from the edge
 
     Eigen::Vector3d a = hev_pos(v0) - hev_pos(v2);
     Eigen::Vector3d b = hev_pos(v1) - hev_pos(v2);
     Eigen::Vector3d cross = a.cross(b);
     double sin_theta = cross.norm();
     if (sin_theta < 1e-12) return 0.0;
-    return a.dot(b) / sin_theta;
+    return a.dot(b) / sin_theta; // cos / sin = cot
 }
 
 double vertex_mixed_area(const HEV* v) {
+    // Calculates the sum of all adjacent faces to a vertex,
+    // Divide by 3 to assign 1/3 of the area to each vertex.
     if (v->out == nullptr) return 0.0;
     double area = 0.0;
     HE* he_start = v->out;
@@ -144,9 +148,12 @@ double vertex_mixed_area(const HEV* v) {
 }
 
 Eigen::SparseMatrix<double> build_fairing_matrix(const MeshGeometry& mesh, double h) {
+    // Calculates (I - h * Delta) with the cotangent Laplacian Delta = (1/(2A)) Sum_j (cot α + cot β)(x_j - x_i)
+    // Off-diagonals become -h * w / (2A) and the diagonal becomes 1 + h * Sum w / (2A).
+
     const std::size_t n = mesh.hevs.size() - 1;
     std::vector<Eigen::Triplet<double>> triplets;
-    triplets.reserve(n * 7); // heuristic
+    triplets.reserve(n * 6); // heuristic
 
     for (std::size_t i = 1; i < mesh.hevs.size(); ++i) {
         HEV* v = mesh.hevs[i];
@@ -172,8 +179,6 @@ Eigen::SparseMatrix<double> build_fairing_matrix(const MeshGeometry& mesh, doubl
             double w = cot1 + cot2;
             weight_sum += w;
 
-            // Using (I - h * Δ) with the cotangent Laplacian Δ = (1/(2A)) Σ (cot α + cot β)(x_j - x_i)
-            // so off-diagonals become -h * w / (2A) and the diagonal accumulates +h * Σw / (2A).
             double coeff = -h * (w / (2.0 * area));
             if (coeff != 0.0) {
                 triplets.emplace_back(row, neighbor->index, coeff);
@@ -194,6 +199,7 @@ void update_mesh_from_solution(MeshGeometry& mesh,
                                const Eigen::VectorXd& x,
                                const Eigen::VectorXd& y,
                                const Eigen::VectorXd& z) {
+    // Replaces all HEVs with new coordinates (from Eigen solver)
     for (std::size_t i = 1; i < mesh.hevs.size(); ++i) {
         HEV* v = mesh.hevs[i];
         int idx = v->index;
@@ -201,7 +207,7 @@ void update_mesh_from_solution(MeshGeometry& mesh,
         v->y = y[idx];
         v->z = z[idx];
 
-        // keep the original vertex list in sync for rendering
+        // keep the original vertex list for rendering
         mesh.obj.vertices[i].x = v->x;
         mesh.obj.vertices[i].y = v->y;
         mesh.obj.vertices[i].z = v->z;
@@ -214,7 +220,7 @@ void apply_implicit_fairing(RenderObject& obj, double h) {
     Eigen::SparseMatrix<double> F = build_fairing_matrix(obj.mesh, h);
 
     const std::size_t n = obj.mesh.hevs.size() - 1;
-    Eigen::VectorXd x0(n), y0(n), z0(n);
+    Eigen::VectorXd x0(n), y0(n), z0(n); // to apply implicit fairing to
     for (std::size_t i = 1; i < obj.mesh.hevs.size(); ++i) {
         const HEV* v = obj.mesh.hevs[i];
         int idx = v->index;
@@ -239,15 +245,17 @@ void apply_implicit_fairing(RenderObject& obj, double h) {
     }
 
     update_mesh_from_solution(obj.mesh, xh, yh, zh);
-    compute_vertex_normals(obj.mesh);
+    compute_vertex_normals(obj.mesh); // Saved inside vertex structs
 }
 
 void build_drawables() {
+    // Builds object vertices/normals lists suitable for OpenGL input
     g_drawables.clear();
     g_drawables.reserve(g_render_objects.size());
 
     for (const auto& src : g_render_objects) {
         DrawableObject drawable;
+         // 3 vertices/normals per face, 3 floats per vertex/normal
         drawable.vertices.reserve(src.mesh.obj.faces.size() * 9);
         drawable.normals.reserve(src.mesh.obj.faces.size() * 9);
 
@@ -335,6 +343,8 @@ void init_gl() {
 }
 
 void set_lights() {
+    // Call every draw loop, sets the light positions after updating GL_MODELVIEW
+    // That way the lights are rotated by the arcball
     const auto& lights = g_scene.lights;
     int num_lights = static_cast<int>(lights.size());
 
@@ -354,6 +364,7 @@ void set_lights() {
 
 void draw_scene() {
     for (const auto& drawable : g_drawables) {
+        // No transforms to apply -- our objects are already transformed during parsing
         glMaterialfv(GL_FRONT, GL_AMBIENT, drawable.ambient);
         glMaterialfv(GL_FRONT, GL_DIFFUSE, drawable.diffuse);
         glMaterialfv(GL_FRONT, GL_SPECULAR, drawable.specular);
@@ -382,10 +393,13 @@ void display() {
     glutSwapBuffers();
 }
 
+// Gets the actual aspect ratio defined by our camera
 static double camera_aspect_from_P(const Eigen::Matrix4d& P) {
     return P(1,1) / P(0,0);
 }
 
+// This code essentially calculates if it needs to pad the window at all in order
+// to match the rendering to the necessary aspect ratio, instead of warping things
 void apply_letterboxed_viewport(int win_w, int win_h) {
     const double A_cam = camera_aspect_from_P(g_scene.cam_transforms.P);
     const double A_win = static_cast<double>(win_w) / static_cast<double>(win_h);
@@ -436,25 +450,27 @@ void run_fairing() {
 void keyboard(unsigned char key, int, int) {
     if (key == 27 || key == 'q' || key == 'Q') {
         std::exit(0);
-    } else if (key == 'f' || key == 'F') {
+    } else if (key == 's' || key == 'S') {
         run_fairing();
     }
 }
 
 RenderObject make_render_object(const ObjectInstance& inst) {
+    // Converts a scene object to a render object usable by this script
     RenderObject obj;
-    obj.mesh.obj = inst.obj;
+    obj.mesh.obj = inst.obj; // Save original loaded object
 
+    // Copy over pointers to vertices/normals in our loaded SceneObject
     obj.mesh.vertex_ptrs.reserve(obj.mesh.obj.vertices.size());
     for (std::size_t i = 0; i < obj.mesh.obj.vertices.size(); ++i) {
         obj.mesh.vertex_ptrs.push_back(&obj.mesh.obj.vertices[i]);
     }
-
     obj.mesh.face_ptrs.reserve(obj.mesh.obj.faces.size());
     for (std::size_t i = 0; i < obj.mesh.obj.faces.size(); ++i) {
         obj.mesh.face_ptrs.push_back(&obj.mesh.obj.faces[i]);
     }
 
+    // For intake into HE, only time we use it
     Mesh_Data mesh_data;
     mesh_data.vertices = &obj.mesh.vertex_ptrs;
     mesh_data.faces = &obj.mesh.face_ptrs;
@@ -463,6 +479,7 @@ RenderObject make_render_object(const ObjectInstance& inst) {
         throw std::runtime_error("Failed to build halfedge structure");
     }
 
+    // Indices are unique, otherwise ordering is mostly arbitrary
     for (std::size_t i = 1; i < obj.mesh.hevs.size(); ++i) {
         obj.mesh.hevs[i]->index = static_cast<int>(i - 1);
     }
@@ -480,11 +497,12 @@ RenderObject make_render_object(const ObjectInstance& inst) {
     double shininess = std::max(0.0, std::min(inst.shininess, 128.0));
     obj.shininess = static_cast<GLfloat>(shininess);
 
-    compute_vertex_normals(obj.mesh);
+    compute_vertex_normals(obj.mesh); // Stored inside vertices
     return obj;
 }
 
 void build_render_objects() {
+    // Converts all scene objects to render objects
     g_render_objects.clear();
     g_render_objects.reserve(g_scene.scene_objects.size());
     for (const auto& inst : g_scene.scene_objects) {
@@ -531,7 +549,7 @@ int main(int argc, char** argv) {
     glutCreateWindow("Implicit Fairing");
 
 #ifdef __APPLE__
-    glewExperimental = GL_TRUE;
+    glewExperimental = GL_TRUE; // Prevents segfaults on mac
 #endif
     GLenum err = glewInit();
     if (err != GLEW_OK) {
