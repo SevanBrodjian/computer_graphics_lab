@@ -7,6 +7,18 @@
  * an interpolation technique. You might call it "Al Barr's I-Bar" ;)
  */
 
+#ifdef __APPLE__
+#define GL_SILENCE_DEPRECATION
+#endif
+#include <GL/glew.h>
+#ifdef __APPLE__
+#include <GLUT/glut.h>
+#include <OpenGL/glu.h>
+#else
+#include <GL/glut.h>
+#include <GL/glu.h>
+#endif
+
 /* Needed to draw the cylinders using glu */
 GLUquadricObj *quadratic;
 
