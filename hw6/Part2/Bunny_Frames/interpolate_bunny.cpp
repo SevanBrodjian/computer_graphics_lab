@@ -14,16 +14,16 @@
 #include <vector>
 
 template <typename T>
-T catmullRom(const T &p0, const T &p1, const T &p2, const T &p3, float t) {
-    float t2 = t * t;
-    float t3 = t2 * t;
-    return 0.5f * ((2.f * p1) + (-p0 + p2) * t +
-                   (2.f * p0 - 5.f * p1 + 4.f * p2 - p3) * t2 +
-                   (-p0 + 3.f * p1 - 3.f * p2 + p3) * t3);
+T catmullRom(const T &p0, const T &p1, const T &p2, const T &p3, double t) {
+    double t2 = t * t;
+    double t3 = t2 * t;
+    return 0.5 * ((2.0 * p1) + (-p0 + p2) * t +
+                  (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * t2 +
+                  (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * t3);
 }
 
 struct ObjData {
-    std::vector<Eigen::Vector3f> vertices;
+    std::vector<Eigen::Vector3d> vertices;
     std::vector<std::string> otherLines;
 };
 
@@ -35,7 +35,7 @@ ObjData readObj(const std::string &filename) {
         if (line.size() > 1 && line[0] == 'v' && line[1] == ' ') {
             std::stringstream ss(line);
             char v;
-            Eigen::Vector3f vert;
+            Eigen::Vector3d vert;
             ss >> v >> vert[0] >> vert[1] >> vert[2];
             data.vertices.push_back(vert);
         } else {
@@ -45,10 +45,10 @@ ObjData readObj(const std::string &filename) {
     return data;
 }
 
-void writeObj(const std::string &filename, const std::vector<Eigen::Vector3f> &vertices,
+void writeObj(const std::string &filename, const std::vector<Eigen::Vector3d> &vertices,
               const std::vector<std::string> &otherLines) {
     std::ofstream out(filename.c_str());
-    out << std::setprecision(7);
+    out << std::fixed << std::setprecision(6);
     for (const auto &v : vertices) {
         out << "v " << v[0] << " " << v[1] << " " << v[2] << "\n";
     }
@@ -57,7 +57,7 @@ void writeObj(const std::string &filename, const std::vector<Eigen::Vector3f> &v
     }
 }
 
-Eigen::Vector3f interpolateVertex(int frame, const std::map<int, std::vector<Eigen::Vector3f>> &keyframes,
+Eigen::Vector3d interpolateVertex(int frame, const std::map<int, std::vector<Eigen::Vector3d>> &keyframes,
                                   int index) {
     int f0, f1, f2, f3;
     if (frame < 5) {
@@ -70,18 +70,18 @@ Eigen::Vector3f interpolateVertex(int frame, const std::map<int, std::vector<Eig
         f0 = 10; f1 = 15; f2 = 20; f3 = 20;
     }
 
-    float t = static_cast<float>(frame - f1) / static_cast<float>(f2 - f1);
-    const Eigen::Vector3f &p0 = keyframes.at(f0)[index];
-    const Eigen::Vector3f &p1 = keyframes.at(f1)[index];
-    const Eigen::Vector3f &p2 = keyframes.at(f2)[index];
-    const Eigen::Vector3f &p3 = keyframes.at(f3)[index];
+    double t = static_cast<double>(frame - f1) / static_cast<double>(f2 - f1);
+    const Eigen::Vector3d &p0 = keyframes.at(f0)[index];
+    const Eigen::Vector3d &p1 = keyframes.at(f1)[index];
+    const Eigen::Vector3d &p2 = keyframes.at(f2)[index];
+    const Eigen::Vector3d &p3 = keyframes.at(f3)[index];
 
     return catmullRom(p0, p1, p2, p3, t);
 }
 
 int main() {
     std::vector<int> frameIds = {0, 5, 10, 15, 20};
-    std::map<int, std::vector<Eigen::Vector3f>> keyframes;
+    std::map<int, std::vector<Eigen::Vector3d>> keyframes;
     std::vector<std::string> otherLines;
 
     for (int id : frameIds) {
@@ -105,7 +105,7 @@ int main() {
     size_t vertexCount = keyframes.begin()->second.size();
 
     for (int frame : targets) {
-        std::vector<Eigen::Vector3f> verts(vertexCount);
+        std::vector<Eigen::Vector3d> verts(vertexCount);
         for (size_t i = 0; i < vertexCount; ++i) {
             verts[i] = interpolateVertex(frame, keyframes, static_cast<int>(i));
         }

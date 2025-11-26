@@ -5,7 +5,13 @@
 #define GL_SILENCE_DEPRECATION
 #endif
 #include <GL/glew.h>
+#ifdef __APPLE__
+#include <GLUT/glut.h>
+#include <OpenGL/glu.h>
+#else
 #include <GL/glut.h>
+#include <GL/glu.h>
+#endif
 #include <Eigen/Dense>
 #include <Eigen/Geometry>
 #include <algorithm>
@@ -26,7 +32,9 @@ struct Keyframe {
 std::vector<Keyframe> keyframes;
 int totalFrames = 0;
 int currentFrame = 0;
-GLUquadricObj *quadratic = nullptr;
+extern GLUquadricObj *quadratic;
+
+void drawIBar();
 
 // Catmull-Rom spline interpolation for vectors/quaternions.
 template <typename T>
@@ -135,46 +143,6 @@ bool loadScript(const std::string &filename) {
               [](const Keyframe &a, const Keyframe &b) { return a.frame < b.frame; });
 
     return !keyframes.empty();
-}
-
-void drawIBar() {
-    float cyRad = 0.2f, cyHeight = 1.0f;
-    int quadStacks = 4, quadSlices = 4;
-
-    glPushMatrix();
-    glColor3f(0, 0, 1);
-    glTranslatef(0, cyHeight, 0);
-    glRotatef(90, 1, 0, 0);
-    gluCylinder(quadratic, cyRad, cyRad, 2.0f * cyHeight, quadSlices, quadStacks);
-    glPopMatrix();
-
-    glPushMatrix();
-    glColor3f(0, 1, 1);
-    glTranslatef(0, cyHeight, 0);
-    glRotatef(90, 0, 1, 0);
-    gluCylinder(quadratic, cyRad, cyRad, cyHeight, quadSlices, quadStacks);
-    glPopMatrix();
-
-    glPushMatrix();
-    glColor3f(1, 0, 1);
-    glTranslatef(0, cyHeight, 0);
-    glRotatef(-90, 0, 1, 0);
-    gluCylinder(quadratic, cyRad, cyRad, cyHeight, quadSlices, quadStacks);
-    glPopMatrix();
-
-    glPushMatrix();
-    glColor3f(1, 1, 0);
-    glTranslatef(0, -cyHeight, 0);
-    glRotatef(-90, 0, 1, 0);
-    gluCylinder(quadratic, cyRad, cyRad, cyHeight, quadSlices, quadStacks);
-    glPopMatrix();
-
-    glPushMatrix();
-    glColor3f(0, 1, 0);
-    glTranslatef(0, -cyHeight, 0);
-    glRotatef(90, 0, 1, 0);
-    gluCylinder(quadratic, cyRad, cyRad, cyHeight, quadSlices, quadStacks);
-    glPopMatrix();
 }
 
 void display() {
