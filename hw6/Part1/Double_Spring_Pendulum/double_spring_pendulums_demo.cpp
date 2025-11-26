@@ -15,8 +15,15 @@
  * spring pendulum file for details.
  */
 
+#ifdef __APPLE__
+#define GL_SILENCE_DEPRECATION
+#endif
 #include <GL/glew.h>
+#ifdef __APPLE__
+#include <GLUT/glut.h>
+#else
 #include <GL/glut.h>
+#endif
 
 #include <cmath>
 #include <cfloat>
@@ -240,29 +247,27 @@ void update_pendulums()
      * 
      */
 
-    
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    
-
     /****************************** END TODO ****************************/
+    float r_1 = sqrt(m1.x * m1.x + m1.y * m1.y);
+    float x_diff = m2.x - m1.x;
+    float y_diff = m2.y - m1.y;
+    float r_2 = sqrt(x_diff * x_diff + y_diff * y_diff);
+    
+    float x_1_next = dt / m1.m * (m1.px - dt * m1.k * (r_1 - m1.rl) * m1.x / r_1 - dt * m2.k * (r_2 - m2.rl) * (m1.x - m2.x) / r_2) + m1.x;
+    float y_1_next = dt / m1.m * (m1.py - dt * m1.k * (r_1 - m1.rl) * m1.y / r_1 - dt * m2.k * (r_2 - m2.rl) * (m1.y - m2.y) / r_2 + dt * m1.m * g) + m1.y;
+    
+    float x_2_next = dt / m2.m * (m2.px - dt * m2.k * (r_2 - m2.rl) * (m2.x - m1.x) / r_2) + m2.x;
+    float y_2_next = dt / m2.m * (m2.py - dt * m2.k * (r_2 - m2.rl) * (m2.y - m1.y) / r_2 + dt * m2.m * g) + m2.y;
+
+    m1.px = m1.m * (x_1_next - m1.x) / dt;
+    m1.py = m1.m * (y_1_next - m1.y) / dt;
+    m2.px = m2.m * (x_2_next - m2.x) / dt;
+    m2.py = m2.m * (y_2_next - m2.y) / dt;
+
+    m1.x = x_1_next;
+    m1.y = y_1_next;
+    m2.x = x_2_next;
+    m2.y = y_2_next;
 
     t += dt;
 }

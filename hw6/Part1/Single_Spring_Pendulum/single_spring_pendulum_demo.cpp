@@ -14,8 +14,15 @@
  */
 
 /* Usual includes and namespaces */
+#ifdef __APPLE__
+#define GL_SILENCE_DEPRECATION
+#endif
 #include <GL/glew.h>
+#ifdef __APPLE__
+#include <GLUT/glut.h>
+#else
 #include <GL/glut.h>
+#endif
 
 #include <cfloat>
 #include <cmath>
@@ -242,20 +249,15 @@ void update_pendulum()
      *     g
      * 
      */
-
-
-
-
-
-
-
-
-
-
-
-
-
     /****************************** END TODO ****************************/
+    float actual_length = sqrt(m1.x * m1.x + m1.y * m1.y);
+    float x_next = dt / m1.m * (m1.px - (dt * m1.x * m1.k * (actual_length - m1.rl)) / actual_length) + m1.x;
+    float y_next = dt / m1.m * (m1.py - (dt * m1.y * m1.k * (actual_length - m1.rl)) / actual_length + dt * m1.m * g) + m1.y;
+
+    m1.px = m1.m / dt * (x_next - m1.x);
+    m1.py = m1.m / dt * (y_next - m1.y);
+    m1.x = x_next;
+    m1.y = y_next;
 
     t += dt;
 }

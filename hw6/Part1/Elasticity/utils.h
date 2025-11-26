@@ -15,7 +15,9 @@
 /* Function prototypes */
 
 /* Absolute value function */
+#ifndef __APPLE__
 static float abs(float n);
+#endif
 
 /* Splits given string based on given delimiter and stores tokens in given vector */
 static std::vector<std::string> &split(const std::string &str,
@@ -26,10 +28,12 @@ static std::vector<std::string> split(const std::string &str, char delim);
 
 /* Function implementations */
 
+#ifndef __APPLE__
 static float abs(float n)
 {
-    return (n < 0) ? n * -1.0 : n;
+    return (n < 0) ? n * -1.0f : n;
 }
+#endif
 
 static std::vector<std::string> &split(const std::string &str,
                                        char delim,

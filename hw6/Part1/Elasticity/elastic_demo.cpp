@@ -12,8 +12,15 @@
  */
 
 /* Usual includes and namespaces */
+#ifdef __APPLE__
+#define GL_SILENCE_DEPRECATION
+#endif
 #include <GL/glew.h>
+#ifdef __APPLE__
+#include <GLUT/glut.h>
+#else
 #include <GL/glut.h>
+#endif
 #include <Eigen/Dense>
 
 #include <cfloat>
@@ -363,20 +370,13 @@ void display(void)
          * HINT: this is not that hard; you might even see this as a trick question...
          */
 
-
-
-
-
-
-
-
-
-
-
-
-         
-
         /****************************** END TODO ****************************/
+        float x_next = vertices[i].x + tstep * vertices[i].vx + tstep * tstep / vertices[i].mass * vertices[i].fx;
+        float y_next = vertices[i].y + tstep * vertices[i].vy + tstep * tstep / vertices[i].mass * vertices[i].fy;
+        vertices[i].vx = (x_next - vertices[i].x) / tstep;
+        vertices[i].vy = (y_next - vertices[i].y) / tstep;
+        vertices[i].x = x_next;
+        vertices[i].y = y_next;
         
         ke += 1.0 / 2.0 * ( vertices[i].vx * vertices[i].vx
                             + vertices[i].vy * vertices[i].vy );
