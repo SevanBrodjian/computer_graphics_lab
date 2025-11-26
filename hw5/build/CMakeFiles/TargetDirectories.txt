@@ -1,0 +1,3 @@
+/Users/sevan/experiments/computer_graphics_lab/hw5/build/CMakeFiles/smooth.dir
+/Users/sevan/experiments/computer_graphics_lab/hw5/build/CMakeFiles/edit_cache.dir
+/Users/sevan/experiments/computer_graphics_lab/hw5/build/CMakeFiles/rebuild_cache.dir

@@ -1,6 +1,3 @@
-/* CS/CNS 171 -- HW6 Part 2
- * Keyframe animation of the I-Bar using Catmull-Rom interpolation.
- */
 #ifdef __APPLE__
 #define GL_SILENCE_DEPRECATION
 #endif
@@ -23,6 +20,7 @@
 #include <vector>
 
 struct Keyframe {
+    // Stores each of our keyframes loaded from the script file
     int frame = 0;
     Eigen::Vector3f translation = Eigen::Vector3f::Zero();
     Eigen::Vector3f scale = Eigen::Vector3f::Ones();
@@ -36,17 +34,18 @@ extern GLUquadricObj *quadratic;
 
 void drawIBar();
 
-// Catmull-Rom spline interpolation for vectors/quaternions.
+// Catmull-Rom spline interpolation for vectors and quaternions.
+// Calculates f(u) = uBp, with B taken from lecture notes
 template <typename T>
-T catmullRom(const T &p0, const T &p1, const T &p2, const T &p3, float t) {
-    float t2 = t * t;
-    float t3 = t2 * t;
-    return 0.5f * ((2.f * p1) + (-p0 + p2) * t +
-                   (2.f * p0 - 5.f * p1 + 4.f * p2 - p3) * t2 +
-                   (-p0 + 3.f * p1 - 3.f * p2 + p3) * t3);
+T catmull_rom(const T &p0, const T &p1, const T &p2, const T &p3, float u) {
+    float u2 = u * u;
+    float u3 = u2 * u;
+    return 0.5f * ((2.f * p1) + (-p0 + p2) * u +
+                   (2.f * p0 - 5.f * p1 + 4.f * p2 - p3) * u2 +
+                   (-p0 + 3.f * p1 - 3.f * p2 + p3) * u3);
 }
 
-Keyframe interpolateFrame(int frameIdx) {
+Keyframe interpolate_frame(int frameIdx) {
     if (keyframes.empty()) {
         return Keyframe();
     }
@@ -55,6 +54,7 @@ Keyframe interpolateFrame(int frameIdx) {
     std::sort(keyframes.begin(), keyframes.end(),
               [](const Keyframe &a, const Keyframe &b) { return a.frame < b.frame; });
 
+    // Find the latest keyframe before this frame
     int n = static_cast<int>(keyframes.size());
     int idx1 = 0;
     for (int i = 0; i < n; ++i) {
@@ -65,7 +65,7 @@ Keyframe interpolateFrame(int frameIdx) {
         }
     }
 
-    int idx2 = (idx1 + 1) % n;
+    int idx2 = (idx1 + 1) % n; // Animation loops
     const Keyframe &k1 = keyframes[idx1];
     const Keyframe &k2 = keyframes[idx2];
 
@@ -81,20 +81,20 @@ Keyframe interpolateFrame(int frameIdx) {
         }
     }
 
-    float t = (frameValue - f1) / (f2 - f1);
+    float u = (frameValue - f1) / (f2 - f1);
 
     const Keyframe &k0 = keyframes[(idx1 - 1 + n) % n];
     const Keyframe &k3 = keyframes[(idx2 + 1) % n];
 
     Keyframe result;
-    result.translation = catmullRom(k0.translation, k1.translation, k2.translation, k3.translation, t);
-    result.scale = catmullRom(k0.scale, k1.scale, k2.scale, k3.scale, t);
+    result.translation = catmull_rom(k0.translation, k1.translation, k2.translation, k3.translation, u);
+    result.scale = catmull_rom(k0.scale, k1.scale, k2.scale, k3.scale, u);
 
     Eigen::Vector4f q0 = k0.rotation.coeffs();
     Eigen::Vector4f q1 = k1.rotation.coeffs();
     Eigen::Vector4f q2 = k2.rotation.coeffs();
     Eigen::Vector4f q3 = k3.rotation.coeffs();
-    Eigen::Vector4f qInterp = catmullRom(q0, q1, q2, q3, t);
+    Eigen::Vector4f qInterp = catmull_rom(q0, q1, q2, q3, u);
     Eigen::Quaternionf q;
     q.coeffs() = qInterp;
     q.normalize();
@@ -104,7 +104,7 @@ Keyframe interpolateFrame(int frameIdx) {
     return result;
 }
 
-bool loadScript(const std::string &filename) {
+bool load_script(const std::string &filename) {
     std::ifstream infile(filename.c_str());
     if (!infile) {
         std::cerr << "Failed to open script file: " << filename << std::endl;
@@ -139,6 +139,7 @@ bool loadScript(const std::string &filename) {
         keyframes.push_back(kf);
     }
 
+    // Ensure keyframes are sorted by frame index.
     std::sort(keyframes.begin(), keyframes.end(),
               [](const Keyframe &a, const Keyframe &b) { return a.frame < b.frame; });
 
@@ -152,7 +153,7 @@ void display() {
     glLoadIdentity();
     gluLookAt(0.0, 0.0, 40.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0);
 
-    Keyframe kf = interpolateFrame(currentFrame);
+    Keyframe kf = interpolate_frame(currentFrame);
 
     glTranslatef(kf.translation[0], kf.translation[1], kf.translation[2]);
     Eigen::AngleAxisf aa(kf.rotation);
@@ -175,13 +176,16 @@ void reshape(int w, int h) {
 }
 
 void keyboard(unsigned char key, int, int) {
+    if (key == 27 || key == 'q' || key == 'Q') {
+        std::exit(0);
+    }
     // Step forward one frame on any key press.
     currentFrame = (currentFrame + 1) % totalFrames;
     glutPostRedisplay();
 }
 
 void initGL() {
-    glClearColor(0.2f, 0.2f, 0.2f, 1.0f);
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     glEnable(GL_DEPTH_TEST);
 
     quadratic = gluNewQuadric();
@@ -193,13 +197,13 @@ int main(int argc, char **argv) {
         scriptFile = argv[1];
     }
 
-    if (!loadScript(scriptFile)) {
+    if (!load_script(scriptFile)) {
         return 1;
     }
 
     glutInit(&argc, argv);
     glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH);
-    glutInitWindowSize(800, 600);
+    glutInitWindowSize(600, 600);
     glutCreateWindow("I-Bar Keyframe");
 
 #ifndef __APPLE__
